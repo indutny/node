@@ -284,3 +284,8 @@ int uv_run(uv_loop_t* loop) {
   assert(!UV_LOOP_ALIVE((loop)));
   return 0;
 }
+
+
+void uv_wait(uv_loop_t* loop, unsigned int timeout) {
+  assert(0 && "implement me");
+}

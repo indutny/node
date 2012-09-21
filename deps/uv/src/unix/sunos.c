@@ -485,3 +485,8 @@ void uv_free_interface_addresses(uv_interface_address_t* addresses,
 
   free(addresses);
 }
+
+
+void uv_wait(uv_loop_t* loop, unsigned int timeout) {
+  assert(0 && "implement me");
+}

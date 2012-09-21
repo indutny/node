@@ -598,6 +598,8 @@ void ev_loop_fork (EV_P);
 
 unsigned int ev_backend (EV_P); /* backend in use by loop */
 
+int ev_backend_fd (EV_P); /* backend fd in use by loop */
+
 void ev_now_update (EV_P); /* update event loop time */
 
 #if EV_WALK_ENABLE

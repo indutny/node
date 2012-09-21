@@ -82,3 +82,8 @@ int uv_fs_event_init(uv_loop_t* loop,
 void uv__fs_event_close(uv_fs_event_t* handle) {
   assert(0 && "implement me");
 }
+
+
+void uv_wait(uv_loop_t* loop, unsigned int timeout) {
+  assert(0 && "implement me");
+}

@@ -305,6 +305,7 @@
         'test/test-util.c',
         'test/test-async.c',
         'test/test-error.c',
+        'test/test-embed.c',
         'test/test-callback-stack.c',
         'test/test-callback-order.c',
         'test/test-connection-fail.c',

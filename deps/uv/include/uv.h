@@ -241,6 +241,11 @@ UV_EXTERN int uv_run(uv_loop_t*);
 UV_EXTERN int uv_run_once(uv_loop_t*);
 
 /*
+ * Block until event will happen (with dequeing it), or until timeout.
+ */
+UV_EXTERN void uv_wait(uv_loop_t*, unsigned int timeout);
+
+/*
  * Manually modify the event loop's reference count. Useful if the user wants
  * to have a handle or timeout that doesn't keep the loop alive.
  */

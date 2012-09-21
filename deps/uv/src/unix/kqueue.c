@@ -29,6 +29,7 @@
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <sys/event.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
@@ -119,4 +120,20 @@ void uv__fs_event_close(uv_fs_event_t* handle) {
   free(handle->filename);
   close(handle->fd);
   handle->fd = -1;
+}
+
+
+void uv_wait(uv_loop_t* loop, unsigned int timeout) {
+  struct timespec ts;
+  unsigned int poll_timeout;
+
+  poll_timeout = uv__poll_timeout(loop);
+  if (timeout != 0 && poll_timeout > timeout) {
+    poll_timeout = timeout;
+  }
+
+  ts.tv_sec = poll_timeout / 1000;
+  ts.tv_nsec = (poll_timeout - ts.tv_sec * 1000) * 1000000;
+
+  kevent(ev_backend_fd(loop->ev), NULL, 0, NULL, 0, &ts);
 }

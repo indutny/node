@@ -122,6 +122,7 @@ void uv__io_feed(uv_loop_t* loop, uv__io_t* handle, int event);
 int uv__io_active(uv__io_t* handle);
 
 /* loop */
+unsigned int uv__poll_timeout(uv_loop_t* loop);
 int uv__loop_init(uv_loop_t* loop, int default_loop);
 void uv__loop_delete(uv_loop_t* loop);
 void uv__run_idle(uv_loop_t* loop);
