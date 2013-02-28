@@ -606,6 +606,65 @@ void Builtins::Generate_LazyRecompile(MacroAssembler* masm) {
 }
 
 
+static void GenerateMakeCodeYoungAgainCommon(MacroAssembler* masm) {
+  // For now, we are relying on the fact that make_code_young doesn't do any
+  // garbage collection which allows us to save/restore the registers without
+  // worrying about which of them contain pointers. We also don't build an
+  // internal frame to make the code faster, since we shouldn't have to do stack
+  // crawls in MakeCodeYoung. This seems a bit fragile.
+
+  // Re-execute the code that was patched back to the young age when
+  // the stub returns.
+  __ subq(Operand(rsp, 0), Immediate(5));
+  __ Pushad();
+#ifdef _WIN64
+  __ movq(rcx, Operand(rsp, kNumSafepointRegisters * kPointerSize));
+#else
+  __ movq(rdi, Operand(rsp, kNumSafepointRegisters * kPointerSize));
+#endif
+  {  // NOLINT
+    FrameScope scope(masm, StackFrame::MANUAL);
+    __ PrepareCallCFunction(1);
+    __ CallCFunction(
+        ExternalReference::get_make_code_young_function(masm->isolate()), 1);
+  }
+  __ Popad();
+  __ ret(0);
+}
+
+
+#define DEFINE_CODE_AGE_BUILTIN_GENERATOR(C)                 \
+void Builtins::Generate_Make##C##CodeYoungAgainEvenMarking(  \
+    MacroAssembler* masm) {                                  \
+  GenerateMakeCodeYoungAgainCommon(masm);                    \
+}                                                            \
+void Builtins::Generate_Make##C##CodeYoungAgainOddMarking(   \
+    MacroAssembler* masm) {                                  \
+  GenerateMakeCodeYoungAgainCommon(masm);                    \
+}
+CODE_AGE_LIST(DEFINE_CODE_AGE_BUILTIN_GENERATOR)
+#undef DEFINE_CODE_AGE_BUILTIN_GENERATOR
+
+
+void Builtins::Generate_NotifyStubFailure(MacroAssembler* masm) {
+  // Enter an internal frame.
+  {
+    FrameScope scope(masm, StackFrame::INTERNAL);
+
+    // Preserve registers across notification, this is important for compiled
+    // stubs that tail call the runtime on deopts passing their parameters in
+    // registers.
+    __ Pushad();
+    __ CallRuntime(Runtime::kNotifyStubFailure, 0);
+    __ Popad();
+    // Tear down internal frame.
+  }
+
+  __ pop(MemOperand(rsp, 0));  // Ignore state offset
+  __ ret(0);  // Return to IC Miss stub, continuation still on stack.
+}
+
+
 static void Generate_NotifyDeoptimizedHelper(MacroAssembler* masm,
                                              Deoptimizer::BailoutType type) {
   // Enter an internal frame.
@@ -620,17 +679,17 @@ static void Generate_NotifyDeoptimizedHelper(MacroAssembler* masm,
   }
 
   // Get the full codegen state from the stack and untag it.
-  __ SmiToInteger32(rcx, Operand(rsp, 1 * kPointerSize));
+  __ SmiToInteger32(r10, Operand(rsp, 1 * kPointerSize));
 
   // Switch on the state.
   Label not_no_registers, not_tos_rax;
-  __ cmpq(rcx, Immediate(FullCodeGenerator::NO_REGISTERS));
+  __ cmpq(r10, Immediate(FullCodeGenerator::NO_REGISTERS));
   __ j(not_equal, &not_no_registers, Label::kNear);
   __ ret(1 * kPointerSize);  // Remove state.
 
   __ bind(&not_no_registers);
   __ movq(rax, Operand(rsp, 2 * kPointerSize));
-  __ cmpq(rcx, Immediate(FullCodeGenerator::TOS_REG));
+  __ cmpq(r10, Immediate(FullCodeGenerator::TOS_REG));
   __ j(not_equal, &not_tos_rax, Label::kNear);
   __ ret(2 * kPointerSize);  // Remove state, rax.
 

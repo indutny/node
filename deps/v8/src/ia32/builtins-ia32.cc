@@ -257,6 +257,7 @@ static void Generate_JSConstructStubHelper(MacroAssembler* masm,
       __ AllocateInNewSpace(FixedArray::kHeaderSize,
                             times_pointer_size,
                             edx,
+                            REGISTER_VALUE_IS_INT32,
                             edi,
                             ecx,
                             no_reg,
@@ -535,6 +536,61 @@ void Builtins::Generate_LazyRecompile(MacroAssembler* masm) {
   // Do a tail-call of the compiled function.
   __ lea(eax, FieldOperand(eax, Code::kHeaderSize));
   __ jmp(eax);
+}
+
+
+static void GenerateMakeCodeYoungAgainCommon(MacroAssembler* masm) {
+  // For now, we are relying on the fact that make_code_young doesn't do any
+  // garbage collection which allows us to save/restore the registers without
+  // worrying about which of them contain pointers. We also don't build an
+  // internal frame to make the code faster, since we shouldn't have to do stack
+  // crawls in MakeCodeYoung. This seems a bit fragile.
+
+  // Re-execute the code that was patched back to the young age when
+  // the stub returns.
+  __ sub(Operand(esp, 0), Immediate(5));
+  __ pushad();
+  __ mov(eax, Operand(esp, 8 * kPointerSize));
+  {
+    FrameScope scope(masm, StackFrame::MANUAL);
+    __ PrepareCallCFunction(1, ebx);
+    __ mov(Operand(esp, 0), eax);
+    __ CallCFunction(
+        ExternalReference::get_make_code_young_function(masm->isolate()), 1);
+  }
+  __ popad();
+  __ ret(0);
+}
+
+#define DEFINE_CODE_AGE_BUILTIN_GENERATOR(C)                 \
+void Builtins::Generate_Make##C##CodeYoungAgainEvenMarking(  \
+    MacroAssembler* masm) {                                  \
+  GenerateMakeCodeYoungAgainCommon(masm);                    \
+}                                                            \
+void Builtins::Generate_Make##C##CodeYoungAgainOddMarking(   \
+    MacroAssembler* masm) {                                  \
+  GenerateMakeCodeYoungAgainCommon(masm);                    \
+}
+CODE_AGE_LIST(DEFINE_CODE_AGE_BUILTIN_GENERATOR)
+#undef DEFINE_CODE_AGE_BUILTIN_GENERATOR
+
+
+void Builtins::Generate_NotifyStubFailure(MacroAssembler* masm) {
+  // Enter an internal frame.
+  {
+    FrameScope scope(masm, StackFrame::INTERNAL);
+
+    // Preserve registers across notification, this is important for compiled
+    // stubs that tail call the runtime on deopts passing their parameters in
+    // registers.
+    __ pushad();
+    __ CallRuntime(Runtime::kNotifyStubFailure, 0);
+    __ popad();
+    // Tear down internal frame.
+  }
+
+  __ pop(MemOperand(esp, 0));  // Ignore state offset
+  __ ret(0);  // Return to IC Miss stub, continuation still on stack.
 }
 
 
@@ -1047,8 +1103,9 @@ static void AllocateJSArray(MacroAssembler* masm,
   // requested elements.
   STATIC_ASSERT(kSmiTagSize == 1 && kSmiTag == 0);
   __ AllocateInNewSpace(JSArray::kSize + FixedArray::kHeaderSize,
-                        times_half_pointer_size,  // array_size is a smi.
+                        times_pointer_size,
                         array_size,
+                        REGISTER_VALUE_IS_SMI,
                         result,
                         elements_array_end,
                         scratch,

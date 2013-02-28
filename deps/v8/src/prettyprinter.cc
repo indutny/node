@@ -42,6 +42,7 @@ PrettyPrinter::PrettyPrinter() {
   output_ = NULL;
   size_ = 0;
   pos_ = 0;
+  InitializeAstVisitor();
 }
 
 
@@ -119,6 +120,14 @@ void PrettyPrinter::VisitModulePath(ModulePath* node) {
 void PrettyPrinter::VisitModuleUrl(ModuleUrl* node) {
   Print("at ");
   PrintLiteral(node->url(), true);
+}
+
+
+void PrettyPrinter::VisitModuleStatement(ModuleStatement* node) {
+  Print("module ");
+  PrintLiteral(node->proxy()->name(), false);
+  Print(" ");
+  Visit(node->body());
 }
 
 
@@ -819,6 +828,13 @@ void AstPrinter::VisitModulePath(ModulePath* node) {
 
 void AstPrinter::VisitModuleUrl(ModuleUrl* node) {
   PrintLiteralIndented("URL", node->url(), true);
+}
+
+
+void AstPrinter::VisitModuleStatement(ModuleStatement* node) {
+  IndentedScope indent(this, "MODULE");
+  PrintLiteralIndented("NAME", node->proxy()->name(), true);
+  PrintStatements(node->body()->statements());
 }
 
 

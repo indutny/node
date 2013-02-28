@@ -216,50 +216,6 @@ static void GenerateDictionaryStore(MacroAssembler* masm,
 }
 
 
-void LoadIC::GenerateArrayLength(MacroAssembler* masm) {
-  // ----------- S t a t e -------------
-  //  -- ecx    : name
-  //  -- edx    : receiver
-  //  -- esp[0] : return address
-  // -----------------------------------
-  Label miss;
-
-  StubCompiler::GenerateLoadArrayLength(masm, edx, eax, &miss);
-  __ bind(&miss);
-  StubCompiler::GenerateLoadMiss(masm, Code::LOAD_IC);
-}
-
-
-void LoadIC::GenerateStringLength(MacroAssembler* masm,
-                                  bool support_wrappers) {
-  // ----------- S t a t e -------------
-  //  -- ecx    : name
-  //  -- edx    : receiver
-  //  -- esp[0] : return address
-  // -----------------------------------
-  Label miss;
-
-  StubCompiler::GenerateLoadStringLength(masm, edx, eax, ebx, &miss,
-                                         support_wrappers);
-  __ bind(&miss);
-  StubCompiler::GenerateLoadMiss(masm, Code::LOAD_IC);
-}
-
-
-void LoadIC::GenerateFunctionPrototype(MacroAssembler* masm) {
-  // ----------- S t a t e -------------
-  //  -- ecx    : name
-  //  -- edx    : receiver
-  //  -- esp[0] : return address
-  // -----------------------------------
-  Label miss;
-
-  StubCompiler::GenerateLoadFunctionPrototype(masm, edx, eax, ebx, &miss);
-  __ bind(&miss);
-  StubCompiler::GenerateLoadMiss(masm, Code::LOAD_IC);
-}
-
-
 // Checks the receiver for special cases (value type, slow case bits).
 // Falls through for regular JS object.
 static void GenerateKeyedLoadReceiverCheck(MacroAssembler* masm,
@@ -647,7 +603,7 @@ void KeyedLoadIC::GenerateString(MacroAssembler* masm) {
   char_at_generator.GenerateSlow(masm, call_helper);
 
   __ bind(&miss);
-  GenerateMiss(masm, false);
+  GenerateMiss(masm, MISS);
 }
 
 
@@ -689,7 +645,7 @@ void KeyedLoadIC::GenerateIndexedInterceptor(MacroAssembler* masm) {
   __ TailCallExternalReference(ref, 2, 1);
 
   __ bind(&slow);
-  GenerateMiss(masm, false);
+  GenerateMiss(masm, MISS);
 }
 
 
@@ -714,7 +670,7 @@ void KeyedLoadIC::GenerateNonStrictArguments(MacroAssembler* masm) {
   __ mov(eax, unmapped_location);
   __ Ret();
   __ bind(&slow);
-  GenerateMiss(masm, false);
+  GenerateMiss(masm, MISS);
 }
 
 
@@ -743,7 +699,7 @@ void KeyedStoreIC::GenerateNonStrictArguments(MacroAssembler* masm) {
   __ RecordWrite(ebx, edi, edx, kDontSaveFPRegs);
   __ Ret();
   __ bind(&slow);
-  GenerateMiss(masm, false);
+  GenerateMiss(masm, MISS);
 }
 
 
@@ -835,7 +791,9 @@ static void KeyedStoreGenerateGenericHelper(
                                          ebx,
                                          edi,
                                          slow);
-  ElementsTransitionGenerator::GenerateSmiToDouble(masm, slow);
+  AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS,
+                                                        FAST_DOUBLE_ELEMENTS);
+  ElementsTransitionGenerator::GenerateSmiToDouble(masm, mode, slow);
   __ mov(ebx, FieldOperand(edx, JSObject::kElementsOffset));
   __ jmp(&fast_double_without_map_check);
 
@@ -846,7 +804,9 @@ static void KeyedStoreGenerateGenericHelper(
                                          ebx,
                                          edi,
                                          slow);
-  ElementsTransitionGenerator::GenerateMapChangeElementsTransition(masm);
+  mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS, FAST_ELEMENTS);
+  ElementsTransitionGenerator::GenerateMapChangeElementsTransition(masm, mode,
+                                                                   slow);
   __ mov(ebx, FieldOperand(edx, JSObject::kElementsOffset));
   __ jmp(&finish_object_store);
 
@@ -860,7 +820,8 @@ static void KeyedStoreGenerateGenericHelper(
                                          ebx,
                                          edi,
                                          slow);
-  ElementsTransitionGenerator::GenerateDoubleToObject(masm, slow);
+  mode = AllocationSiteInfo::GetMode(FAST_DOUBLE_ELEMENTS, FAST_ELEMENTS);
+  ElementsTransitionGenerator::GenerateDoubleToObject(masm, mode, slow);
   __ mov(ebx, FieldOperand(edx, JSObject::kElementsOffset));
   __ jmp(&finish_object_store);
 }
@@ -1385,7 +1346,7 @@ void LoadIC::GenerateMiss(MacroAssembler* masm) {
 }
 
 
-void KeyedLoadIC::GenerateMiss(MacroAssembler* masm, bool force_generic) {
+void KeyedLoadIC::GenerateMiss(MacroAssembler* masm, ICMissMode miss_mode) {
   // ----------- S t a t e -------------
   //  -- ecx    : key
   //  -- edx    : receiver
@@ -1400,7 +1361,7 @@ void KeyedLoadIC::GenerateMiss(MacroAssembler* masm, bool force_generic) {
   __ push(ebx);  // return address
 
   // Perform tail call to the entry.
-  ExternalReference ref = force_generic
+  ExternalReference ref = miss_mode == MISS_FORCE_GENERIC
       ? ExternalReference(IC_Utility(kKeyedLoadIC_MissForceGeneric),
                           masm->isolate())
       : ExternalReference(IC_Utility(kKeyedLoadIC_Miss), masm->isolate());
@@ -1462,65 +1423,6 @@ void StoreIC::GenerateMiss(MacroAssembler* masm) {
   ExternalReference ref =
       ExternalReference(IC_Utility(kStoreIC_Miss), masm->isolate());
   __ TailCallExternalReference(ref, 3, 1);
-}
-
-
-void StoreIC::GenerateArrayLength(MacroAssembler* masm) {
-  // ----------- S t a t e -------------
-  //  -- eax    : value
-  //  -- ecx    : name
-  //  -- edx    : receiver
-  //  -- esp[0] : return address
-  // -----------------------------------
-  //
-  // This accepts as a receiver anything JSArray::SetElementsLength accepts
-  // (currently anything except for external arrays which means anything with
-  // elements of FixedArray type).  Value must be a number, but only smis are
-  // accepted as the most common case.
-
-  Label miss;
-
-  Register receiver = edx;
-  Register value = eax;
-  Register scratch = ebx;
-
-  // Check that the receiver isn't a smi.
-  __ JumpIfSmi(receiver, &miss);
-
-  // Check that the object is a JS array.
-  __ CmpObjectType(receiver, JS_ARRAY_TYPE, scratch);
-  __ j(not_equal, &miss);
-
-  // Check that elements are FixedArray.
-  // We rely on StoreIC_ArrayLength below to deal with all types of
-  // fast elements (including COW).
-  __ mov(scratch, FieldOperand(receiver, JSArray::kElementsOffset));
-  __ CmpObjectType(scratch, FIXED_ARRAY_TYPE, scratch);
-  __ j(not_equal, &miss);
-
-  // Check that the array has fast properties, otherwise the length
-  // property might have been redefined.
-  __ mov(scratch, FieldOperand(receiver, JSArray::kPropertiesOffset));
-  __ CompareRoot(FieldOperand(scratch, FixedArray::kMapOffset),
-                 Heap::kHashTableMapRootIndex);
-  __ j(equal, &miss);
-
-  // Check that value is a smi.
-  __ JumpIfNotSmi(value, &miss);
-
-  // Prepare tail call to StoreIC_ArrayLength.
-  __ pop(scratch);
-  __ push(receiver);
-  __ push(value);
-  __ push(scratch);  // return address
-
-  ExternalReference ref =
-      ExternalReference(IC_Utility(kStoreIC_ArrayLength), masm->isolate());
-  __ TailCallExternalReference(ref, 2, 1);
-
-  __ bind(&miss);
-
-  GenerateMiss(masm);
 }
 
 
@@ -1598,7 +1500,7 @@ void KeyedStoreIC::GenerateRuntimeSetProperty(MacroAssembler* masm,
 }
 
 
-void KeyedStoreIC::GenerateMiss(MacroAssembler* masm, bool force_generic) {
+void KeyedStoreIC::GenerateMiss(MacroAssembler* masm, ICMissMode miss_mode) {
   // ----------- S t a t e -------------
   //  -- eax    : value
   //  -- ecx    : key
@@ -1613,7 +1515,7 @@ void KeyedStoreIC::GenerateMiss(MacroAssembler* masm, bool force_generic) {
   __ push(ebx);
 
   // Do tail-call to runtime routine.
-  ExternalReference ref = force_generic
+  ExternalReference ref = miss_mode == MISS_FORCE_GENERIC
       ? ExternalReference(IC_Utility(kKeyedStoreIC_MissForceGeneric),
                           masm->isolate())
       : ExternalReference(IC_Utility(kKeyedStoreIC_Miss), masm->isolate());
@@ -1650,7 +1552,9 @@ void KeyedStoreIC::GenerateTransitionElementsSmiToDouble(MacroAssembler* masm) {
   // Must return the modified receiver in eax.
   if (!FLAG_trace_elements_transitions) {
     Label fail;
-    ElementsTransitionGenerator::GenerateSmiToDouble(masm, &fail);
+    AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_SMI_ELEMENTS,
+                                                          FAST_DOUBLE_ELEMENTS);
+    ElementsTransitionGenerator::GenerateSmiToDouble(masm, mode, &fail);
     __ mov(eax, edx);
     __ Ret();
     __ bind(&fail);
@@ -1676,7 +1580,9 @@ void KeyedStoreIC::GenerateTransitionElementsDoubleToObject(
   // Must return the modified receiver in eax.
   if (!FLAG_trace_elements_transitions) {
     Label fail;
-    ElementsTransitionGenerator::GenerateDoubleToObject(masm, &fail);
+    AllocationSiteMode mode = AllocationSiteInfo::GetMode(FAST_DOUBLE_ELEMENTS,
+                                                          FAST_ELEMENTS);
+    ElementsTransitionGenerator::GenerateDoubleToObject(masm, mode, &fail);
     __ mov(eax, edx);
     __ Ret();
     __ bind(&fail);
@@ -1715,7 +1621,7 @@ Condition CompareIC::ComputeCondition(Token::Value op) {
 }
 
 
-static bool HasInlinedSmiCode(Address address) {
+bool CompareIC::HasInlinedSmiCode(Address address) {
   // The address of the instruction following the call.
   Address test_instruction_address =
       address + Assembler::kCallTargetAddressOffset;
@@ -1723,40 +1629,6 @@ static bool HasInlinedSmiCode(Address address) {
   // If the instruction following the call is not a test al, nothing
   // was inlined.
   return *test_instruction_address == Assembler::kTestAlByte;
-}
-
-
-void CompareIC::UpdateCaches(Handle<Object> x, Handle<Object> y) {
-  HandleScope scope;
-  Handle<Code> rewritten;
-  State previous_state = GetState();
-
-  State state = TargetState(previous_state, HasInlinedSmiCode(address()), x, y);
-  if (state == GENERIC) {
-    CompareStub stub(GetCondition(), strict(), NO_COMPARE_FLAGS);
-    rewritten = stub.GetCode();
-  } else {
-    ICCompareStub stub(op_, state);
-    if (state == KNOWN_OBJECTS) {
-      stub.set_known_map(Handle<Map>(Handle<JSObject>::cast(x)->map()));
-    }
-    rewritten = stub.GetCode();
-  }
-  set_target(*rewritten);
-
-#ifdef DEBUG
-  if (FLAG_trace_ic) {
-    PrintF("[CompareIC (%s->%s)#%s]\n",
-           GetStateName(previous_state),
-           GetStateName(state),
-           Token::Name(op_));
-  }
-#endif
-
-  // Activate inlined smi code.
-  if (previous_state == UNINITIALIZED) {
-    PatchInlinedSmiCode(address(), ENABLE_INLINED_SMI_CHECK);
-  }
 }
 
 

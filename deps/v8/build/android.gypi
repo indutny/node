@@ -122,8 +122,6 @@
         'ldflags': [
           '-nostdlib',
           '-Wl,--no-undefined',
-          # Don't export symbols from statically linked libraries.
-          '-Wl,--exclude-libs=ALL',
         ],
         'libraries!': [
             '-lrt',  # librt is built into Bionic.
@@ -183,6 +181,11 @@
                   '-L<(android_stlport_libs)/armeabi',
                 ],
               }],
+              ['target_arch=="mipsel"', {
+                'ldflags': [
+                  '-L<(android_stlport_libs)/mips',
+                ],
+              }],
               ['target_arch=="ia32"', {
                 'ldflags': [
                   '-L<(android_stlport_libs)/x86',
@@ -194,6 +197,16 @@
             # The x86 toolchain currently has problems with stack-protector.
             'cflags!': [
               '-fstack-protector',
+            ],
+            'cflags': [
+              '-fno-stack-protector',
+            ],
+          }],
+          ['target_arch=="mipsel"', {
+            # The mips toolchain currently has problems with stack-protector.
+            'cflags!': [
+              '-fstack-protector',
+              '-U__linux__'
             ],
             'cflags': [
               '-fno-stack-protector',
@@ -219,6 +232,13 @@
           ['_type=="shared_library"', {
             'ldflags': [
               '-Wl,-shared,-Bsymbolic',
+              '<(android_lib)/crtbegin_so.o',
+            ],
+          }],
+          ['_type=="static_library"', {
+            'ldflags': [
+              # Don't export symbols from statically linked libraries.
+              '-Wl,--exclude-libs=ALL',
             ],
           }],
         ],

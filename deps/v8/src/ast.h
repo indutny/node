@@ -75,6 +75,7 @@ namespace internal {
 
 #define STATEMENT_NODE_LIST(V)                  \
   V(Block)                                      \
+  V(ModuleStatement)                            \
   V(ExpressionStatement)                        \
   V(EmptyStatement)                             \
   V(IfStatement)                                \
@@ -522,7 +523,7 @@ class ModuleDeclaration: public Declaration {
   ModuleDeclaration(VariableProxy* proxy,
                     Module* module,
                     Scope* scope)
-      : Declaration(proxy, LET, scope),
+      : Declaration(proxy, MODULE, scope),
         module_(module) {
   }
 
@@ -642,6 +643,25 @@ class ModuleUrl: public Module {
 
  private:
   Handle<String> url_;
+};
+
+
+class ModuleStatement: public Statement {
+ public:
+  DECLARE_NODE_TYPE(ModuleStatement)
+
+  VariableProxy* proxy() const { return proxy_; }
+  Block* body() const { return body_; }
+
+ protected:
+  ModuleStatement(VariableProxy* proxy, Block* body)
+      : proxy_(proxy),
+        body_(body) {
+  }
+
+ private:
+  VariableProxy* proxy_;
+  Block* body_;
 };
 
 
@@ -1417,7 +1437,7 @@ class VariableProxy: public Expression {
   void MarkAsTrivial() { is_trivial_ = true; }
   void MarkAsLValue() { is_lvalue_ = true; }
 
-  // Bind this proxy to the variable var.
+  // Bind this proxy to the variable var. Interfaces must match.
   void BindTo(Variable* var);
 
  protected:
@@ -1777,9 +1797,6 @@ class CompareOperation: public Expression {
 
   // Type feedback information.
   TypeFeedbackId CompareOperationFeedbackId() const { return reuse(id()); }
-  void RecordTypeFeedback(TypeFeedbackOracle* oracle);
-  bool IsSmiCompare() { return compare_type_ == SMI_ONLY; }
-  bool IsObjectCompare() { return compare_type_ == OBJECT_ONLY; }
 
   // Match special cases.
   bool IsLiteralCompareTypeof(Expression** expr, Handle<String>* check);
@@ -1796,8 +1813,7 @@ class CompareOperation: public Expression {
         op_(op),
         left_(left),
         right_(right),
-        pos_(pos),
-        compare_type_(NONE) {
+        pos_(pos) {
     ASSERT(Token::IsCompareOp(op));
   }
 
@@ -1806,9 +1822,6 @@ class CompareOperation: public Expression {
   Expression* left_;
   Expression* right_;
   int pos_;
-
-  enum CompareTypeFeedback { NONE, SMI_ONLY, OBJECT_ONLY };
-  CompareTypeFeedback compare_type_;
 };
 
 
@@ -2479,40 +2492,51 @@ inline ModuleVariable::ModuleVariable(VariableProxy* proxy)
 
 class AstVisitor BASE_EMBEDDED {
  public:
-  AstVisitor() : isolate_(Isolate::Current()), stack_overflow_(false) { }
+  AstVisitor() {}
   virtual ~AstVisitor() { }
 
   // Stack overflow check and dynamic dispatch.
-  void Visit(AstNode* node) { if (!CheckStackOverflow()) node->Accept(this); }
+  virtual void Visit(AstNode* node) = 0;
 
   // Iteration left-to-right.
   virtual void VisitDeclarations(ZoneList<Declaration*>* declarations);
   virtual void VisitStatements(ZoneList<Statement*>* statements);
   virtual void VisitExpressions(ZoneList<Expression*>* expressions);
 
-  // Stack overflow tracking support.
-  bool HasStackOverflow() const { return stack_overflow_; }
-  bool CheckStackOverflow();
-
-  // If a stack-overflow exception is encountered when visiting a
-  // node, calling SetStackOverflow will make sure that the visitor
-  // bails out without visiting more nodes.
-  void SetStackOverflow() { stack_overflow_ = true; }
-  void ClearStackOverflow() { stack_overflow_ = false; }
-
   // Individual AST nodes.
 #define DEF_VISIT(type)                         \
   virtual void Visit##type(type* node) = 0;
   AST_NODE_LIST(DEF_VISIT)
 #undef DEF_VISIT
-
- protected:
-  Isolate* isolate() { return isolate_; }
-
- private:
-  Isolate* isolate_;
-  bool stack_overflow_;
 };
+
+
+#define DEFINE_AST_VISITOR_SUBCLASS_MEMBERS()                       \
+public:                                                             \
+  virtual void Visit(AstNode* node) {                               \
+    if (!CheckStackOverflow()) node->Accept(this);                  \
+  }                                                                 \
+                                                                    \
+  void SetStackOverflow() { stack_overflow_ = true; }               \
+  void ClearStackOverflow() { stack_overflow_ = false; }            \
+  bool HasStackOverflow() const { return stack_overflow_; }         \
+                                                                    \
+  bool CheckStackOverflow() {                                       \
+    if (stack_overflow_) return true;                               \
+    StackLimitCheck check(isolate_);                                \
+    if (!check.HasOverflowed()) return false;                       \
+    return (stack_overflow_ = true);                                \
+  }                                                                 \
+                                                                    \
+private:                                                            \
+  void InitializeAstVisitor() {                                     \
+    isolate_ = Isolate::Current();                                  \
+    stack_overflow_ = false;                                        \
+  }                                                                 \
+  Isolate* isolate() { return isolate_; }                           \
+                                                                    \
+  Isolate* isolate_;                                                \
+  bool stack_overflow_
 
 
 // ----------------------------------------------------------------------------
@@ -2646,6 +2670,11 @@ class AstNodeFactory BASE_EMBEDDED {
   STATEMENT_WITH_LABELS(ForInStatement)
   STATEMENT_WITH_LABELS(SwitchStatement)
 #undef STATEMENT_WITH_LABELS
+
+  ModuleStatement* NewModuleStatement(VariableProxy* proxy, Block* body) {
+    ModuleStatement* stmt = new(zone_) ModuleStatement(proxy, body);
+    VISIT_AND_RETURN(ModuleStatement, stmt)
+  }
 
   ExpressionStatement* NewExpressionStatement(Expression* expression) {
     ExpressionStatement* stmt = new(zone_) ExpressionStatement(expression);

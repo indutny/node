@@ -47,10 +47,51 @@ namespace v8 {
 namespace internal {
 
 
+int Register::NumAllocatableRegisters() {
+  if (CpuFeatures::IsSupported(VFP2)) {
+    return kMaxNumAllocatableRegisters;
+  } else {
+    return kMaxNumAllocatableRegisters - kGPRsPerNonVFP2Double;
+  }
+}
+
+
+int DwVfpRegister::NumRegisters() {
+  if (CpuFeatures::IsSupported(VFP2)) {
+    return CpuFeatures::IsSupported(VFP32DREGS) ? 32 : 16;
+  } else {
+    return 1;
+  }
+}
+
+
+int DwVfpRegister::NumAllocatableRegisters() {
+  if (CpuFeatures::IsSupported(VFP2)) {
+    return NumRegisters() - kNumReservedRegisters;
+  } else {
+    return 1;
+  }
+}
+
+
 int DwVfpRegister::ToAllocationIndex(DwVfpRegister reg) {
   ASSERT(!reg.is(kDoubleRegZero));
   ASSERT(!reg.is(kScratchDoubleReg));
+  if (reg.code() > kDoubleRegZero.code()) {
+    return reg.code() - kNumReservedRegisters;
+  }
   return reg.code();
+}
+
+
+DwVfpRegister DwVfpRegister::FromAllocationIndex(int index) {
+  ASSERT(index >= 0 && index < NumAllocatableRegisters());
+  ASSERT(kScratchDoubleReg.code() - kDoubleRegZero.code() ==
+         kNumReservedRegisters - 1);
+  if (index >= kDoubleRegZero.code()) {
+    return from_code(index + kNumReservedRegisters);
+  }
+  return from_code(index);
 }
 
 
@@ -86,8 +127,7 @@ int RelocInfo::target_address_size() {
 
 void RelocInfo::set_target_address(Address target, WriteBarrierMode mode) {
   ASSERT(IsCodeTarget(rmode_) || rmode_ == RUNTIME_ENTRY);
-  Assembler::set_target_address_at(pc_, reinterpret_cast<Address>(
-      reinterpret_cast<intptr_t>(target) & ~3));
+  Assembler::set_target_address_at(pc_, target);
   if (mode == UPDATE_WRITE_BARRIER && host() != NULL && IsCodeTarget(rmode_)) {
     Object* target_code = Code::GetCodeFromTargetAddress(target);
     host()->GetHeap()->incremental_marking()->RecordWriteIntoCode(
@@ -166,6 +206,24 @@ void RelocInfo::set_target_cell(JSGlobalPropertyCell* cell,
 }
 
 
+static const int kNoCodeAgeSequenceLength = 3;
+
+Code* RelocInfo::code_age_stub() {
+  ASSERT(rmode_ == RelocInfo::CODE_AGE_SEQUENCE);
+  return Code::GetCodeFromTargetAddress(
+      Memory::Address_at(pc_ + Assembler::kInstrSize *
+                         (kNoCodeAgeSequenceLength - 1)));
+}
+
+
+void RelocInfo::set_code_age_stub(Code* stub) {
+  ASSERT(rmode_ == RelocInfo::CODE_AGE_SEQUENCE);
+  Memory::Address_at(pc_ + Assembler::kInstrSize *
+                     (kNoCodeAgeSequenceLength - 1)) =
+      stub->instruction_start();
+}
+
+
 Address RelocInfo::call_address() {
   // The 2 instructions offset assumes patched debug break slot or return
   // sequence.
@@ -239,6 +297,8 @@ void RelocInfo::Visit(ObjectVisitor* visitor) {
     visitor->VisitGlobalPropertyCell(this);
   } else if (mode == RelocInfo::EXTERNAL_REFERENCE) {
     visitor->VisitExternalReference(this);
+  } else if (RelocInfo::IsCodeAgeSequence(mode)) {
+    visitor->VisitCodeAgeSequence(this);
 #ifdef ENABLE_DEBUGGER_SUPPORT
   // TODO(isolates): Get a cached isolate below.
   } else if (((RelocInfo::IsJSReturn(mode) &&
@@ -265,6 +325,8 @@ void RelocInfo::Visit(Heap* heap) {
     StaticVisitor::VisitGlobalPropertyCell(heap, this);
   } else if (mode == RelocInfo::EXTERNAL_REFERENCE) {
     StaticVisitor::VisitExternalReference(this);
+  } else if (RelocInfo::IsCodeAgeSequence(mode)) {
+    StaticVisitor::VisitCodeAgeSequence(heap, this);
 #ifdef ENABLE_DEBUGGER_SUPPORT
   } else if (heap->isolate()->debug()->has_break_points() &&
              ((RelocInfo::IsJSReturn(mode) &&
@@ -296,7 +358,7 @@ Operand::Operand(const ExternalReference& f)  {
 Operand::Operand(Smi* value) {
   rm_ = no_reg;
   imm32_ =  reinterpret_cast<intptr_t>(value);
-  rmode_ = RelocInfo::NONE;
+  rmode_ = RelocInfo::NONE32;
 }
 
 
@@ -473,14 +535,12 @@ void Assembler::set_target_pointer_at(Address pc, Address target) {
 
 
 Address Assembler::target_address_at(Address pc) {
-  return reinterpret_cast<Address>(
-      reinterpret_cast<intptr_t>(target_pointer_at(pc)) & ~3);
+  return target_pointer_at(pc);
 }
 
 
 void Assembler::set_target_address_at(Address pc, Address target) {
-  set_target_pointer_at(pc, reinterpret_cast<Address>(
-      reinterpret_cast<intptr_t>(target) & ~3));
+  set_target_pointer_at(pc, target);
 }
 
 

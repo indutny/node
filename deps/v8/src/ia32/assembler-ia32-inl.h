@@ -46,12 +46,21 @@ namespace v8 {
 namespace internal {
 
 
+static const byte kCallOpcode = 0xE8;
+
+
 // The modes possibly affected by apply must be in kApplyMask.
 void RelocInfo::apply(intptr_t delta) {
   if (rmode_ == RUNTIME_ENTRY || IsCodeTarget(rmode_)) {
     int32_t* p = reinterpret_cast<int32_t*>(pc_);
     *p -= delta;  // Relocate entry.
     CPU::FlushICache(p, sizeof(uint32_t));
+  } else if (rmode_ == CODE_AGE_SEQUENCE) {
+    if (*pc_ == kCallOpcode) {
+      int32_t* p = reinterpret_cast<int32_t*>(pc_ + 1);
+      *p -= delta;  // Relocate entry.
+      CPU::FlushICache(p, sizeof(uint32_t));
+    }
   } else if (rmode_ == JS_RETURN && IsPatchedReturnSequence()) {
     // Special handling of js_return when a break point is set (call
     // instruction has been inserted).
@@ -169,6 +178,21 @@ void RelocInfo::set_target_cell(JSGlobalPropertyCell* cell,
 }
 
 
+Code* RelocInfo::code_age_stub() {
+  ASSERT(rmode_ == RelocInfo::CODE_AGE_SEQUENCE);
+  ASSERT(*pc_ == kCallOpcode);
+  return Code::GetCodeFromTargetAddress(
+      Assembler::target_address_at(pc_ + 1));
+}
+
+
+void RelocInfo::set_code_age_stub(Code* stub) {
+  ASSERT(*pc_ == kCallOpcode);
+  ASSERT(rmode_ == RelocInfo::CODE_AGE_SEQUENCE);
+  Assembler::set_target_address_at(pc_ + 1, stub->instruction_start());
+}
+
+
 Address RelocInfo::call_address() {
   ASSERT((IsJSReturn(rmode()) && IsPatchedReturnSequence()) ||
          (IsDebugBreakSlot(rmode()) && IsPatchedDebugBreakSlotSequence()));
@@ -206,7 +230,7 @@ Object** RelocInfo::call_object_address() {
 
 
 bool RelocInfo::IsPatchedReturnSequence() {
-  return *pc_ == 0xE8;
+  return *pc_ == kCallOpcode;
 }
 
 
@@ -227,7 +251,9 @@ void RelocInfo::Visit(ObjectVisitor* visitor) {
   } else if (mode == RelocInfo::EXTERNAL_REFERENCE) {
     visitor->VisitExternalReference(this);
     CPU::FlushICache(pc_, sizeof(Address));
-#ifdef ENABLE_DEBUGGER_SUPPORT
+  } else if (RelocInfo::IsCodeAgeSequence(mode)) {
+    visitor->VisitCodeAgeSequence(this);
+  #ifdef ENABLE_DEBUGGER_SUPPORT
   // TODO(isolates): Get a cached isolate below.
   } else if (((RelocInfo::IsJSReturn(mode) &&
               IsPatchedReturnSequence()) ||
@@ -255,6 +281,8 @@ void RelocInfo::Visit(Heap* heap) {
   } else if (mode == RelocInfo::EXTERNAL_REFERENCE) {
     StaticVisitor::VisitExternalReference(this);
     CPU::FlushICache(pc_, sizeof(Address));
+  } else if (RelocInfo::IsCodeAgeSequence(mode)) {
+    StaticVisitor::VisitCodeAgeSequence(heap, this);
 #ifdef ENABLE_DEBUGGER_SUPPORT
   } else if (heap->isolate()->debug()->has_break_points() &&
              ((RelocInfo::IsJSReturn(mode) &&
@@ -272,7 +300,7 @@ void RelocInfo::Visit(Heap* heap) {
 
 Immediate::Immediate(int x)  {
   x_ = x;
-  rmode_ = RelocInfo::NONE;
+  rmode_ = RelocInfo::NONE32;
 }
 
 
@@ -298,20 +326,20 @@ Immediate::Immediate(Handle<Object> handle) {
   } else {
     // no relocation needed
     x_ =  reinterpret_cast<intptr_t>(obj);
-    rmode_ = RelocInfo::NONE;
+    rmode_ = RelocInfo::NONE32;
   }
 }
 
 
 Immediate::Immediate(Smi* value) {
   x_ = reinterpret_cast<intptr_t>(value);
-  rmode_ = RelocInfo::NONE;
+  rmode_ = RelocInfo::NONE32;
 }
 
 
 Immediate::Immediate(Address addr) {
   x_ = reinterpret_cast<int32_t>(addr);
-  rmode_ = RelocInfo::NONE;
+  rmode_ = RelocInfo::NONE32;
 }
 
 
@@ -338,7 +366,7 @@ void Assembler::emit(Handle<Object> handle) {
 void Assembler::emit(uint32_t x, RelocInfo::Mode rmode, TypeFeedbackId id) {
   if (rmode == RelocInfo::CODE_TARGET && !id.IsNone()) {
     RecordRelocInfo(RelocInfo::CODE_TARGET_WITH_ID, id.ToInt());
-  } else if (rmode != RelocInfo::NONE) {
+  } else if (!RelocInfo::IsNone(rmode)) {
     RecordRelocInfo(rmode);
   }
   emit(x);
@@ -351,7 +379,7 @@ void Assembler::emit(const Immediate& x) {
     emit_code_relative_offset(label);
     return;
   }
-  if (x.rmode_ != RelocInfo::NONE) RecordRelocInfo(x.rmode_);
+  if (!RelocInfo::IsNone(x.rmode_)) RecordRelocInfo(x.rmode_);
   emit(x.x_);
 }
 
@@ -368,7 +396,7 @@ void Assembler::emit_code_relative_offset(Label* label) {
 
 
 void Assembler::emit_w(const Immediate& x) {
-  ASSERT(x.rmode_ == RelocInfo::NONE);
+  ASSERT(RelocInfo::IsNone(x.rmode_));
   uint16_t value = static_cast<uint16_t>(x.x_);
   reinterpret_cast<uint16_t*>(pc_)[0] = value;
   pc_ += sizeof(uint16_t);
