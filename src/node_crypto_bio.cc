@@ -254,9 +254,9 @@ size_t NodeBIO::IndexOf(char delim, size_t limit) {
 }
 
 
-void NodeBIO::Write(const char* data, size_t len) {
+void NodeBIO::Write(const char* data, size_t size) {
   size_t offset = 0;
-  size_t left = len;
+  size_t left = size;
   while (left > 0) {
     size_t to_write = left;
     assert(write_head_->write_pos_ <= kBufferLength);
@@ -269,25 +269,23 @@ void NodeBIO::Write(const char* data, size_t len) {
     memcpy(write_head_->data_ + write_head_->write_pos_,
            data + offset,
            to_write);
-    write_head_->write_pos_ += to_write;
-    assert(write_head_->write_pos_ <= kBufferLength);
 
     // Move pointers
+    write_head_->write_pos_ += to_write;
     left -= to_write;
     offset += to_write;
     length_ += to_write;
+    assert(write_head_->write_pos_ <= kBufferLength);
 
-    // Still have some bytes left:
-    //  1. Go to next buffer
-    //  2. Allocate new if next is already full or is partially read
-    //     (is read head)
-    if (write_head_->next_->write_pos_ == kBufferLength ||
-        write_head_->next_->read_pos_ != 0) {
-      Buffer* next = new Buffer();
-      next->next_ = write_head_->next_;
-      write_head_->next_ = next;
+    // Got to next buffer if still has some bytes to write
+    if (left != 0) {
+      if (write_head_->next_->write_pos_ == kBufferLength) {
+        Buffer* next = new Buffer();
+        next->next_ = write_head_->next_;
+        write_head_->next_ = next;
+      }
+      write_head_ = write_head_->next_;
     }
-    write_head_ = write_head_->next_;
   }
   assert(left == 0);
 }
