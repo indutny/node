@@ -271,15 +271,15 @@ void NodeBIO::Write(const char* data, size_t size) {
            to_write);
 
     // Move pointers
-    write_head_->write_pos_ += to_write;
     left -= to_write;
     offset += to_write;
     length_ += to_write;
+    write_head_->write_pos_ += to_write;
     assert(write_head_->write_pos_ <= kBufferLength);
 
     // Got to next buffer if still has some bytes to write
     if (left != 0) {
-      if (write_head_->next_->write_pos_ == kBufferLength) {
+      if (write_head_->write_pos_ == kBufferLength) {
         Buffer* next = new Buffer();
         next->next_ = write_head_->next_;
         write_head_->next_ = next;
