@@ -90,6 +90,7 @@ class TLSWrap : public TCPWrap {
   BIO* enc_in_;
   BIO* enc_out_;
   NodeBIO* clear_in_;
+  uv_write_t write_req_;
   size_t write_size_;
   QUEUE write_item_queue_;
 };

@@ -129,10 +129,9 @@ void TLSWrap::EncOut() {
   char* data = NodeBIO::FromBIO(enc_out_)->Peek(&write_size_);
   assert(write_size_ != 0);
 
-  uv_write_t req;
-  req.data = this;
+  write_req_.data = this;
   uv_buf_t buf = uv_buf_init(data, write_size_);
-  uv_write(&req, stream, &buf, 1, EncOutCb);
+  uv_write(&write_req_, stream, &buf, 1, EncOutCb);
 }
 
 
