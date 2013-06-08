@@ -26,11 +26,13 @@
 
 #include "v8.h"
 #include "tcp_wrap.h"
+#include "queue.h"
 
 namespace node {
 
 // Forward-declarations
 class NodeBIO;
+class WriteWrap;
 namespace crypto {
   class SecureContext;
 }
@@ -43,6 +45,16 @@ class TLSWrap : public TCPWrap {
 
  protected:
   static const int kClearOutChunkSize = 1024;
+  class WriteItem {
+   public:
+    WriteItem(WriteWrap* w, uv_write_cb cb) : w_(w), cb_(cb) {
+    }
+    ~WriteItem();
+
+    WriteWrap* w_;
+    uv_write_cb cb_;
+    QUEUE member_;
+  };
 
   TLSWrap(v8::Handle<v8::Object> object, v8::Handle<v8::Object> sc);
   ~TLSWrap();
@@ -50,8 +62,17 @@ class TLSWrap : public TCPWrap {
   void InitClient();
   void EncOut();
   static void EncOutCb(uv_write_t* req, int status);
+  bool ClearIn();
   void ClearOut();
+  void InvokeQueued(int status);
 
+  v8::Handle<v8::Value> GetSSLError(int status, int* err);
+
+  int DoWrite(WriteWrap* w,
+              uv_buf_t* bufs,
+              int count,
+              uv_stream_t* send_handle,
+              uv_write_cb cb);
   uv_buf_t DoAlloc(uv_handle_t* handle, size_t suggested_size);
   void HandleRead(uv_stream_t* handle,
                   ssize_t nread,
@@ -70,6 +91,7 @@ class TLSWrap : public TCPWrap {
   BIO* enc_out_;
   NodeBIO* clear_in_;
   size_t write_size_;
+  QUEUE write_item_queue_;
 };
 
 } // namespace node

@@ -11,6 +11,7 @@ using crypto::SecureContext;
 static Persistent<Function> tlsConstructor;
 static Persistent<String> onread_sym;
 static Persistent<String> onclearOutError_sym;
+static Persistent<String> onclearInError_sym;
 static Persistent<String> onencOutError_sym;
 
 
@@ -22,10 +23,41 @@ TLSWrap::TLSWrap(Handle<Object> object, Handle<Object> sc) : TCPWrap(object),
                                                              write_size_(0) {
   sc_ = ObjectWrap::Unwrap<SecureContext>(sc);
   sc_handle_ = Persistent<Object>::New(node_isolate, sc);
+
+  // TODO(indutny) support it
+  SSL_CTX_sess_set_get_cb(sc_->ctx_, NULL);
+  SSL_CTX_sess_set_new_cb(sc_->ctx_, NULL);
+
+  QUEUE_INIT(&write_item_queue_);
 }
 
 
 TLSWrap::~TLSWrap() {
+  SSL_free(ssl_);
+  ssl_ = NULL;
+  enc_in_ = NULL;
+  enc_out_ = NULL;
+  delete clear_in_;
+  clear_in_ = NULL;
+}
+
+
+TLSWrap::WriteItem::~WriteItem() {
+  w_ = NULL;
+  cb_ = NULL;
+}
+
+
+void TLSWrap::InvokeQueued(int status) {
+  QUEUE* q = NULL;
+  QUEUE_FOREACH(q, &write_item_queue_) {
+    WriteItem* wi = container_of(q, WriteItem, member_);
+    wi->cb_(&wi->w_->req_, status);
+    delete wi;
+  }
+
+  // Empty queue
+  QUEUE_INIT(&write_item_queue_);
 }
 
 
@@ -82,8 +114,15 @@ Handle<Value> TLSWrap::New(const Arguments& args) {
 
 
 void TLSWrap::EncOut() {
-  if (write_size_ != 0 || BIO_pending(enc_out_) == 0)
+  // Write in progress
+  if (write_size_ != 0)
     return;
+
+  // No data to write
+  if (BIO_pending(enc_out_) == 0) {
+    InvokeQueued(0);
+    return;
+  }
 
   uv_stream_t* stream = reinterpret_cast<uv_stream_t*>(&handle_);
 
@@ -105,6 +144,7 @@ void TLSWrap::EncOutCb(uv_write_t* req, int status) {
     SetErrno(uv_last_error(uv_default_loop()));
     Handle<Value> arg = Integer::New(status, node_isolate);
     MakeCallback(wrap->object_, onencOutError_sym, 1, &arg);
+    wrap->InvokeQueued(status);
     return;
   }
 
@@ -114,6 +154,39 @@ void TLSWrap::EncOutCb(uv_write_t* req, int status) {
   // Try writing more data
   wrap->write_size_ = 0;
   wrap->EncOut();
+}
+
+
+Handle<Value> TLSWrap::GetSSLError(int status, int* err) {
+  HandleScope scope(node_isolate);
+
+  *err = SSL_get_error(ssl_, status);
+  switch (*err) {
+   case SSL_ERROR_NONE:
+   case SSL_ERROR_WANT_READ:
+   case SSL_ERROR_WANT_WRITE:
+    break;
+   case SSL_ERROR_ZERO_RETURN:
+    return String::NewSymbol("ZERO_RETURN");
+    break;
+   default:
+    {
+      BUF_MEM* mem;
+      BIO* bio;
+
+      assert(*err == SSL_ERROR_SSL || *err == SSL_ERROR_SYSCALL);
+
+      bio = BIO_new(BIO_s_mem());
+      assert(bio != NULL);
+      ERR_print_errors(bio);
+      BIO_get_mem_ptr(bio, &mem);
+      Handle<Value> r = Exception::Error(String::New(mem->data, mem->length));
+      BIO_free_all(bio);
+
+      return r;
+    }
+  }
+  return Handle<Value>();
 }
 
 
@@ -137,36 +210,89 @@ void TLSWrap::ClearOut() {
   } while (read > 0);
 
   if (read == -1) {
-    int err = SSL_get_error(ssl_, read);
-    Handle<Value> argv;
-
-    switch (err) {
-     case SSL_ERROR_NONE:
-     case SSL_ERROR_WANT_READ:
-     case SSL_ERROR_WANT_WRITE:
-      break;
-     case SSL_ERROR_ZERO_RETURN:
-      argv = String::NewSymbol("ZERO_RETURN");
-      break;
-     default:
-      {
-        BUF_MEM* mem;
-        BIO *bio;
-
-        assert(err == SSL_ERROR_SSL || err == SSL_ERROR_SYSCALL);
-
-        if ((bio = BIO_new(BIO_s_mem()))) {
-          ERR_print_errors(bio);
-          BIO_get_mem_ptr(bio, &mem);
-          argv = Exception::Error(String::New(mem->data, mem->length));
-          BIO_free_all(bio);
-        }
-      }
-    }
+    int err;
+    Handle<Value> argv = GetSSLError(read, &err);
 
     if (!argv.IsEmpty())
       MakeCallback(object_, onclearOutError_sym, 1, &argv);
   }
+}
+
+
+bool TLSWrap::ClearIn() {
+  int written;
+  while (clear_in_->Length() > 0) {
+    size_t avail = 0;
+    char* data = clear_in_->Peek(&avail);
+    written = SSL_write(ssl_, data, avail);
+    assert(written == -1 || written == static_cast<int>(avail));
+    if (written == -1)
+      break;
+    clear_in_->Read(NULL, avail);
+  }
+
+  // All written
+  if (clear_in_->Length() == 0) {
+    assert(written >= 0);
+    return true;
+  }
+
+  // Error or partial write
+  int err;
+  Handle<Value> argv = GetSSLError(written, &err);
+  if (!argv.IsEmpty())
+    MakeCallback(object_, onclearInError_sym, 1, &argv);
+
+  return false;
+}
+
+
+int TLSWrap::DoWrite(WriteWrap* w,
+                     uv_buf_t* bufs,
+                     int count,
+                     uv_stream_t* send_handle,
+                     uv_write_cb cb) {
+  assert(send_handle == NULL);
+
+  // Queue callback to execute it on next tick
+  WriteItem* wi = new WriteItem(w, cb);
+
+  // Assign handle, because AfterWrite expects it
+  // XXX: handle this in stream_wrap.cc
+  w->req_.handle = reinterpret_cast<uv_stream_t*>(&handle_);
+  QUEUE_INSERT_TAIL(&write_item_queue_, &wi->member_);
+
+  // Process enqueued data first
+  if (!ClearIn()) {
+    // If there're still data to process - enqueue current one
+    for (int i = 0; i < count; i++)
+      clear_in_->Write(bufs[i].base, bufs[i].len);
+    return 0;
+  }
+
+  int i;
+  int written;
+  for (i = 0; i < count; i++) {
+    written = SSL_write(ssl_, bufs[i].base, bufs[i].len);
+    assert(written == -1 || written == static_cast<int>(bufs[i].len));
+    if (written == -1)
+      break;
+  }
+
+  if (i != count) {
+    int err;
+    Handle<Value> argv = GetSSLError(written, &err);
+    if (!argv.IsEmpty()) {
+      MakeCallback(object_, onclearInError_sym, 1, &argv);
+      return -1;
+    }
+
+    // No errors, queue rest
+    for (; i < count; i++)
+      clear_in_->Write(bufs[i].base, bufs[i].len);
+  }
+
+  return 0;
 }
 
 
@@ -188,6 +314,7 @@ void TLSWrap::HandleRead(uv_stream_t* handle,
   NodeBIO::FromBIO(enc_in_)->Commit(nread);
 
   // Cycle OpenSSL state
+  ClearIn();
   ClearOut();
   EncOut();
 }
@@ -237,6 +364,7 @@ void TLSWrap::Initialize(v8::Handle<v8::Object> target) {
 
   onread_sym = NODE_PSYMBOL("onread");
   onencOutError_sym = NODE_PSYMBOL("onencOutError");
+  onclearInError_sym = NODE_PSYMBOL("onclearInError");
   onclearOutError_sym = NODE_PSYMBOL("onclearOutError");
 }
 

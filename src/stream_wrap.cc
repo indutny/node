@@ -58,21 +58,6 @@ using v8::Value;
 
 typedef class ReqWrap<uv_shutdown_t> ShutdownWrap;
 
-class WriteWrap: public ReqWrap<uv_write_t> {
- public:
-  void* operator new(size_t size, char* storage) { return storage; }
-
-  // This is just to keep the compiler happy. It should never be called, since
-  // we don't use exceptions in node.
-  void operator delete(void* ptr, char* storage) { assert(0); }
-
- protected:
-  // People should not be using the non-placement new and delete operator on a
-  // WriteWrap. Ensure this never happens.
-  void* operator new (size_t size) { assert(0); };
-  void operator delete(void* ptr) { assert(0); };
-};
-
 
 static Persistent<String> buffer_sym;
 static Persistent<String> bytes_sym;
