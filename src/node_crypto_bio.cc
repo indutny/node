@@ -82,6 +82,12 @@ int NodeBIO::Read(BIO* bio, char* out, int len) {
 }
 
 
+char* NodeBIO::Peek(size_t* size) {
+  *size = read_head_->write_pos_ - read_head_->read_pos_;
+  return read_head_->data_ + read_head_->read_pos_;
+}
+
+
 int NodeBIO::Write(BIO* bio, const char* data, int len) {
   BIO_clear_retry_flags(bio);
 
@@ -303,15 +309,44 @@ void NodeBIO::Write(const char* data, size_t size) {
 
     // Go to next buffer if there still are some bytes to write
     if (left != 0) {
-      if (write_head_->write_pos_ == kBufferLength) {
-        Buffer* next = new Buffer();
-        next->next_ = write_head_->next_;
-        write_head_->next_ = next;
-      }
+      TryAllocateForWrite();
       write_head_ = write_head_->next_;
     }
   }
   assert(left == 0);
+}
+
+
+char* NodeBIO::Reserve(size_t* size) {
+  size_t available = kBufferLength - write_head_->write_pos_;
+  if (*size != 0 && available > *size)
+    available = *size;
+  else
+    *size = available;
+
+  return write_head_->data_ + write_head_->write_pos_;
+}
+
+
+void NodeBIO::Commit(size_t size) {
+  write_head_->write_pos_ += size;
+  length_ += size;
+  assert(write_head_->write_pos_ <= kBufferLength);
+
+  // Allocate new buffer if write head is full,
+  // and there're no other place to go
+  TryAllocateForWrite();
+  write_head_ = write_head_->next_;
+}
+
+
+void NodeBIO::TryAllocateForWrite() {
+  if (write_head_->write_pos_ == kBufferLength &&
+      write_head_->next_ == read_head_) {
+    Buffer* next = new Buffer();
+    next->next_ = write_head_->next_;
+    write_head_->next_ = next;
+  }
 }
 
 

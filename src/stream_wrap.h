@@ -59,7 +59,18 @@ class StreamWrap : public HandleWrap {
   StreamWrap(v8::Handle<v8::Object> object, uv_stream_t* stream);
   void StateChange() { }
   void UpdateWriteQueueSize();
-  virtual int ReadStart(uv_stream_t* stream, bool ipc_pipe);
+  virtual int DoWrite(WriteWrap* w,
+                      uv_buf_t* bufs,
+                      int count,
+                      uv_stream_t* send_handle,
+                      uv_write_cb cb);
+  virtual uv_buf_t DoAlloc(uv_handle_t* handle, size_t suggested_size);
+
+  virtual void HandleRead(uv_stream_t* handle,
+                          ssize_t nread,
+                          uv_buf_t buf,
+                          uv_handle_type pending);
+  virtual void HandleFailedRead(uv_buf_t buf);
 
  private:
   static inline char* NewSlab(v8::Handle<v8::Object> global, v8::Handle<v8::Object> wrap_obj);

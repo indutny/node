@@ -128,16 +128,22 @@ Handle<Value> StreamWrap::GetFD(Local<String>, const AccessorInfo& args) {
 }
 
 
+int StreamWrap::DoWrite(WriteWrap* w,
+                        uv_buf_t* bufs,
+                        int count,
+                        uv_stream_t* send_handle,
+                        uv_write_cb cb) {
+  if (send_handle == NULL) {
+    return uv_write(&w->req_, stream_, bufs, count, cb);
+  } else {
+    return uv_write2(&w->req_, stream_, bufs, count, send_handle, cb);
+  }
+}
+
 void StreamWrap::UpdateWriteQueueSize() {
   HandleScope scope(node_isolate);
   object_->Set(write_queue_size_sym,
                Integer::New(stream_->write_queue_size, node_isolate));
-}
-
-
-int StreamWrap::ReadStart(uv_stream_t* stream, bool ipc_pipe) {
-  return ipc_pipe ? uv_read2_start(stream, OnAlloc, OnRead2) :
-                    uv_read_start(stream, OnAlloc, OnRead);
 }
 
 
@@ -148,7 +154,12 @@ Handle<Value> StreamWrap::ReadStart(const Arguments& args) {
 
   bool ipc_pipe = wrap->stream_->type == UV_NAMED_PIPE &&
                   reinterpret_cast<uv_pipe_t*>(wrap->stream_)->ipc;
-  int r = wrap->ReadStart(wrap->stream_, ipc_pipe);
+  int r;
+  if (ipc_pipe) {
+    r = uv_read2_start(wrap->stream_, OnAlloc, OnRead2);
+  } else {
+    r = uv_read_start(wrap->stream_, OnAlloc, OnRead);
+  }
 
   // Error starting the tcp.
   if (r) SetErrno(uv_last_error(uv_default_loop()));
@@ -171,11 +182,17 @@ Handle<Value> StreamWrap::ReadStop(const Arguments& args) {
 }
 
 
+uv_buf_t StreamWrap::DoAlloc(uv_handle_t* handle, size_t suggested_size) {
+  char* buf = slab_allocator->Allocate(object_, suggested_size);
+  return uv_buf_init(buf, suggested_size);
+}
+
+
 uv_buf_t StreamWrap::OnAlloc(uv_handle_t* handle, size_t suggested_size) {
   StreamWrap* wrap = static_cast<StreamWrap*>(handle->data);
   assert(wrap->stream_ == reinterpret_cast<uv_stream_t*>(handle));
-  char* buf = slab_allocator->Allocate(wrap->object_, suggested_size);
-  return uv_buf_init(buf, suggested_size);
+
+  return wrap->DoAlloc(handle, suggested_size);
 }
 
 
@@ -201,32 +218,11 @@ static Local<Object> AcceptHandle(uv_stream_t* pipe) {
 }
 
 
-void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
-    uv_buf_t buf, uv_handle_type pending) {
-  HandleScope scope(node_isolate);
-
-  StreamWrap* wrap = static_cast<StreamWrap*>(handle->data);
-
-  // We should not be getting this callback if someone as already called
-  // uv_close() on the handle.
-  assert(wrap->object_.IsEmpty() == false);
-
-  if (nread < 0)  {
-    // If libuv reports an error or EOF it *may* give us a buffer back. In that
-    // case, return the space to the slab.
-    if (buf.base != NULL) {
-      slab_allocator->Shrink(wrap->object_, buf.base, 0);
-    }
-
-    SetErrno(uv_last_error(uv_default_loop()));
-    MakeCallback(wrap->object_, onread_sym, 0, NULL);
-    return;
-  }
-
-  assert(buf.base != NULL);
-  Local<Object> slab = slab_allocator->Shrink(wrap->object_,
-                                              buf.base,
-                                              nread);
+void StreamWrap::HandleRead(uv_stream_t* handle,
+                            ssize_t nread,
+                            uv_buf_t buf,
+                            uv_handle_type pending) {
+  Local<Object> slab = slab_allocator->Shrink(object_, buf.base, nread);
 
   if (nread == 0) return;
   assert(static_cast<size_t>(nread) <= buf.len);
@@ -254,13 +250,44 @@ void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
     argc++;
   }
 
-  if (wrap->stream_->type == UV_TCP) {
+  if (stream_->type == UV_TCP) {
     NODE_COUNT_NET_BYTES_RECV(nread);
-  } else if (wrap->stream_->type == UV_NAMED_PIPE) {
+  } else if (stream_->type == UV_NAMED_PIPE) {
     NODE_COUNT_PIPE_BYTES_RECV(nread);
   }
 
-  MakeCallback(wrap->object_, onread_sym, argc, argv);
+  MakeCallback(object_, onread_sym, argc, argv);
+}
+
+
+void StreamWrap::HandleFailedRead(uv_buf_t buf) {
+  if (buf.base != NULL)
+    slab_allocator->Shrink(object_, buf.base, 0);
+}
+
+
+void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
+    uv_buf_t buf, uv_handle_type pending) {
+  HandleScope scope(node_isolate);
+
+  StreamWrap* wrap = static_cast<StreamWrap*>(handle->data);
+
+  // We should not be getting this callback if someone as already called
+  // uv_close() on the handle.
+  assert(wrap->object_.IsEmpty() == false);
+
+  if (nread < 0)  {
+    // If libuv reports an error or EOF it *may* give us a buffer back. In that
+    // case, return the space to the slab.
+    wrap->HandleFailedRead(buf);
+
+    SetErrno(uv_last_error(uv_default_loop()));
+    MakeCallback(wrap->object_, onread_sym, 0, NULL);
+    return;
+  }
+
+  assert(buf.base != NULL);
+  wrap->HandleRead(handle, nread, buf, pending);
 }
 
 
@@ -302,11 +329,7 @@ Handle<Value> StreamWrap::WriteBuffer(const Arguments& args) {
   uv_buf_t buf;
   WriteBuffer(args[0], &buf);
 
-  int r = uv_write(&req_wrap->req_,
-                   wrap->stream_,
-                   &buf,
-                   1,
-                   StreamWrap::AfterWrite);
+  int r = wrap->DoWrite(req_wrap, &buf, 1, NULL, StreamWrap::AfterWrite);
 
   req_wrap->Dispatched();
   req_wrap->object_->Set(bytes_sym,
@@ -379,12 +402,7 @@ Handle<Value> StreamWrap::WriteStringImpl(const Arguments& args) {
                   reinterpret_cast<uv_pipe_t*>(wrap->stream_)->ipc;
 
   if (!ipc_pipe) {
-    r = uv_write(&req_wrap->req_,
-                 wrap->stream_,
-                 &buf,
-                 1,
-                 StreamWrap::AfterWrite);
-
+    r = wrap->DoWrite(req_wrap, &buf, 1, NULL, StreamWrap::AfterWrite);
   } else {
     uv_handle_t* send_handle = NULL;
 
@@ -404,12 +422,11 @@ Handle<Value> StreamWrap::WriteStringImpl(const Arguments& args) {
       req_wrap->object_->Set(handle_sym, send_handle_obj);
     }
 
-    r = uv_write2(&req_wrap->req_,
-                  wrap->stream_,
-                  &buf,
-                  1,
-                  reinterpret_cast<uv_stream_t*>(send_handle),
-                  StreamWrap::AfterWrite);
+    r = wrap->DoWrite(req_wrap,
+                      &buf,
+                      1,
+                      reinterpret_cast<uv_stream_t*>(send_handle),
+                      StreamWrap::AfterWrite);
   }
 
   req_wrap->Dispatched();
@@ -514,11 +531,7 @@ Handle<Value> StreamWrap::Writev(const Arguments& args) {
     bytes += str_size;
   }
 
-  int r = uv_write(&req_wrap->req_,
-                   wrap->stream_,
-                   bufs,
-                   count,
-                   StreamWrap::AfterWrite);
+  int r = wrap->DoWrite(req_wrap, bufs, count, NULL, StreamWrap::AfterWrite);
 
   // Deallocate space
   if (bufs != bufs_)

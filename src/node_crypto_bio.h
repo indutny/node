@@ -38,20 +38,6 @@ class NodeBIO {
   static int Gets(BIO* bio, char* out, int size);
   static long Ctrl(BIO* bio, int cmd, long num, void* ptr);
 
- protected:
-  static const size_t kBufferLength = 16 * 1024;
-
-  class Buffer {
-   public:
-    Buffer() : read_pos_(0), write_pos_(0), next_(NULL) {
-    }
-
-    size_t read_pos_;
-    size_t write_pos_;
-    Buffer* next_;
-    char data_[kBufferLength];
-  };
-
   NodeBIO() : length_(0), read_head_(&head_), write_head_(&head_) {
     // Loop head
     head_.next_ = &head_;
@@ -66,6 +52,10 @@ class NodeBIO {
   // Deallocate children of write head's child if they're empty
   void FreeEmpty();
 
+  // Return pointer to internal data and amout of
+  // contiguous data available to read
+  char* Peek(size_t* size);
+
   // Find first appearance of `delim` in buffer or `limit` if `delim`
   // wasn't found.
   size_t IndexOf(char delim, size_t limit);
@@ -76,6 +66,12 @@ class NodeBIO {
   // Put `len` bytes from `data` into buffer
   void Write(const char* data, size_t size);
 
+  // Reserve some data for future read
+  char* Reserve(size_t* size);
+
+  // Commit reserved data
+  void Commit(size_t size);
+
   // Return size of buffer in bytes
   size_t inline Length() {
     return length_;
@@ -85,6 +81,22 @@ class NodeBIO {
     assert(bio->ptr != NULL);
     return static_cast<NodeBIO*>(bio->ptr);
   }
+
+ protected:
+  static const size_t kBufferLength = 16 * 1024;
+
+  class Buffer {
+   public:
+    Buffer() : read_pos_(0), write_pos_(0), next_(NULL) {
+    }
+
+    size_t read_pos_;
+    size_t write_pos_;
+    Buffer* next_;
+    char data_[kBufferLength];
+  };
+
+  void TryAllocateForWrite();
 
   size_t length_;
   Buffer head_;
