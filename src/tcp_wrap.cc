@@ -70,19 +70,10 @@ Local<Object> TCPWrap::Instantiate() {
 }
 
 
-void TCPWrap::Initialize(Handle<Object> target) {
-  HandleWrap::Initialize(target);
-  StreamWrap::Initialize(target);
-
-  HandleScope scope(node_isolate);
-
-  Local<FunctionTemplate> t = FunctionTemplate::New(New);
-  t->SetClassName(String::NewSymbol("TCP"));
-
-  t->InstanceTemplate()->SetInternalFieldCount(1);
-
+void TCPWrap::InitTemplate(v8::Handle<v8::FunctionTemplate> t) {
   enum PropertyAttribute attributes =
       static_cast<PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
+
   t->InstanceTemplate()->SetAccessor(String::New("fd"),
                                      StreamWrap::GetFD,
                                      NULL,
@@ -119,6 +110,19 @@ void TCPWrap::Initialize(Handle<Object> target) {
 #ifdef _WIN32
   NODE_SET_PROTOTYPE_METHOD(t, "setSimultaneousAccepts", SetSimultaneousAccepts);
 #endif
+}
+
+
+void TCPWrap::Initialize(Handle<Object> target) {
+  HandleWrap::Initialize(target);
+  StreamWrap::Initialize(target);
+
+  HandleScope scope(node_isolate);
+
+  Local<FunctionTemplate> t = FunctionTemplate::New(New);
+  t->SetClassName(String::NewSymbol("TCP"));
+  t->InstanceTemplate()->SetInternalFieldCount(1);
+  InitTemplate(t);
 
   tcpConstructor = Persistent<Function>::New(node_isolate, t->GetFunction());
 
@@ -334,17 +338,9 @@ void TCPWrap::OnConnection(uv_stream_t* handle, int status) {
   Local<Value> argv[1];
 
   if (status == 0) {
-    // Instantiate the client javascript object and handle.
-    Local<Object> client_obj = Instantiate();
-
-    // Unwrap the client javascript object.
-    assert(client_obj->InternalFieldCount() > 0);
-
-    void* client_wrap_v = client_obj->GetAlignedPointerFromInternalField(0);
-    TCPWrap* client_wrap = static_cast<TCPWrap*>(client_wrap_v);
-    uv_stream_t* client_handle =
-        reinterpret_cast<uv_stream_t*>(&client_wrap->handle_);
-    if (uv_accept(handle, client_handle)) return;
+    Local<Object> client_obj = Local<Object>::New(wrap->Accept(handle));
+    if (client_obj.IsEmpty())
+      return;
 
     // Successful accept. Call the onconnection callback in JavaScript land.
     argv[0] = client_obj;
@@ -354,6 +350,25 @@ void TCPWrap::OnConnection(uv_stream_t* handle, int status) {
   }
 
   MakeCallback(wrap->object_, onconnection_sym, ARRAY_SIZE(argv), argv);
+}
+
+
+Handle<Object> TCPWrap::Accept(uv_stream_t* server) {
+  HandleScope scope(node_isolate);
+
+  // Instantiate the client javascript object and handle.
+  Local<Object> client_obj = Instantiate();
+
+  // Unwrap the client javascript object.
+  assert(client_obj->InternalFieldCount() > 0);
+
+  void* client_wrap_v = client_obj->GetAlignedPointerFromInternalField(0);
+  TCPWrap* client_wrap = static_cast<TCPWrap*>(client_wrap_v);
+  uv_stream_t* client_handle =
+      reinterpret_cast<uv_stream_t*>(&client_wrap->handle_);
+  if (uv_accept(server, client_handle)) return Handle<Object>();
+
+  return scope.Close(client_obj);
 }
 
 

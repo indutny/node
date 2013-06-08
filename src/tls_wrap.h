@@ -19,29 +19,37 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#ifndef TLP_WRAP_H_
+#define TLP_WRAP_H_
 
-NODE_EXT_LIST_START
-NODE_EXT_LIST_ITEM(node_buffer)
-#if HAVE_OPENSSL
-NODE_EXT_LIST_ITEM(node_crypto)
-#endif
-NODE_EXT_LIST_ITEM(node_evals)
-NODE_EXT_LIST_ITEM(node_fs)
-NODE_EXT_LIST_ITEM(node_http_parser)
-NODE_EXT_LIST_ITEM(node_os)
-NODE_EXT_LIST_ITEM(node_zlib)
+#include "v8.h"
+#include "tcp_wrap.h"
 
-// libuv rewrite
-NODE_EXT_LIST_ITEM(node_timer_wrap)
-NODE_EXT_LIST_ITEM(node_tcp_wrap)
-NODE_EXT_LIST_ITEM(node_tls_wrap)
-NODE_EXT_LIST_ITEM(node_udp_wrap)
-NODE_EXT_LIST_ITEM(node_pipe_wrap)
-NODE_EXT_LIST_ITEM(node_cares_wrap)
-NODE_EXT_LIST_ITEM(node_tty_wrap)
-NODE_EXT_LIST_ITEM(node_process_wrap)
-NODE_EXT_LIST_ITEM(node_fs_event_wrap)
-NODE_EXT_LIST_ITEM(node_signal_wrap)
+namespace node {
 
-NODE_EXT_LIST_END
+// Forward-declarations
+namespace crypto {
+  class SecureContext;
+}
 
+class TLSWrap : public TCPWrap {
+ public:
+  static v8::Local<v8::Object> Instantiate(v8::Handle<v8::Value> sc);
+  static TLSWrap* Unwrap(v8::Local<v8::Object> obj);
+  static void Initialize(v8::Handle<v8::Object> target);
+
+ protected:
+  TLSWrap(v8::Handle<v8::Object> object, v8::Handle<v8::Object> sc);
+  ~TLSWrap();
+
+  int ReadStart(uv_stream_t* stream, bool ipc_pipe);
+  v8::Handle<v8::Object> Accept(uv_stream_t* server);
+  static v8::Handle<v8::Value> New(const v8::Arguments& args);
+
+  crypto::SecureContext* sc_;
+  v8::Persistent<v8::Object> sc_handle_;
+};
+
+} // namespace node
+
+#endif // TLP_WRAP_H_

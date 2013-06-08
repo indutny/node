@@ -135,6 +135,12 @@ void StreamWrap::UpdateWriteQueueSize() {
 }
 
 
+int StreamWrap::ReadStart(uv_stream_t* stream, bool ipc_pipe) {
+  return ipc_pipe ? uv_read2_start(stream, OnAlloc, OnRead2) :
+                    uv_read_start(stream, OnAlloc, OnRead);
+}
+
+
 Handle<Value> StreamWrap::ReadStart(const Arguments& args) {
   HandleScope scope(node_isolate);
 
@@ -142,12 +148,7 @@ Handle<Value> StreamWrap::ReadStart(const Arguments& args) {
 
   bool ipc_pipe = wrap->stream_->type == UV_NAMED_PIPE &&
                   reinterpret_cast<uv_pipe_t*>(wrap->stream_)->ipc;
-  int r;
-  if (ipc_pipe) {
-    r = uv_read2_start(wrap->stream_, OnAlloc, OnRead2);
-  } else {
-    r = uv_read_start(wrap->stream_, OnAlloc, OnRead);
-  }
+  int r = wrap->ReadStart(wrap->stream_, ipc_pipe);
 
   // Error starting the tcp.
   if (r) SetErrno(uv_last_error(uv_default_loop()));

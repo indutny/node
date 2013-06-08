@@ -33,9 +33,9 @@ class TCPWrap : public StreamWrap {
 
   uv_tcp_t* UVHandle();
 
- private:
+ protected:
   TCPWrap(v8::Handle<v8::Object> object);
-  ~TCPWrap();
+  virtual ~TCPWrap();
 
   static v8::Handle<v8::Value> New(const v8::Arguments& args);
   static v8::Handle<v8::Value> GetSockName(const v8::Arguments& args);
@@ -53,7 +53,9 @@ class TCPWrap : public StreamWrap {
   static v8::Handle<v8::Value> SetSimultaneousAccepts(const v8::Arguments& args);
 #endif
 
+  static void InitTemplate(v8::Handle<v8::FunctionTemplate> t);
   static void OnConnection(uv_stream_t* handle, int status);
+  virtual v8::Handle<v8::Object> Accept(uv_stream_t* server);
   static void AfterConnect(uv_connect_t* req, int status);
 
   uv_tcp_t handle_;
