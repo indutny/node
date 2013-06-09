@@ -10,9 +10,7 @@ using crypto::SecureContext;
 
 static Persistent<Function> tlsConstructor;
 static Persistent<String> onread_sym;
-static Persistent<String> onclearOutError_sym;
-static Persistent<String> onclearInError_sym;
-static Persistent<String> onencOutError_sym;
+static Persistent<String> onerror_sym;
 
 
 TLSWrap::TLSWrap(Handle<Object> object, Handle<Object> sc) : TCPWrap(object),
@@ -142,7 +140,7 @@ void TLSWrap::EncOutCb(uv_write_t* req, int status) {
   if (status) {
     SetErrno(uv_last_error(uv_default_loop()));
     Handle<Value> arg = Integer::New(status, node_isolate);
-    MakeCallback(wrap->object_, onencOutError_sym, 1, &arg);
+    MakeCallback(wrap->object_, onerror_sym, 1, &arg);
     wrap->InvokeQueued(status);
     return;
   }
@@ -213,7 +211,7 @@ void TLSWrap::ClearOut() {
     Handle<Value> argv = GetSSLError(read, &err);
 
     if (!argv.IsEmpty())
-      MakeCallback(object_, onclearOutError_sym, 1, &argv);
+      MakeCallback(object_, onerror_sym, 1, &argv);
   }
 }
 
@@ -240,7 +238,7 @@ bool TLSWrap::ClearIn() {
   int err;
   Handle<Value> argv = GetSSLError(written, &err);
   if (!argv.IsEmpty())
-    MakeCallback(object_, onclearInError_sym, 1, &argv);
+    MakeCallback(object_, onerror_sym, 1, &argv);
 
   return false;
 }
@@ -282,7 +280,7 @@ int TLSWrap::DoWrite(WriteWrap* w,
     int err;
     Handle<Value> argv = GetSSLError(written, &err);
     if (!argv.IsEmpty()) {
-      MakeCallback(object_, onclearInError_sym, 1, &argv);
+      MakeCallback(object_, onerror_sym, 1, &argv);
       return -1;
     }
 
@@ -362,9 +360,7 @@ void TLSWrap::Initialize(v8::Handle<v8::Object> target) {
   target->Set(String::NewSymbol("TLS"), tlsConstructor);
 
   onread_sym = NODE_PSYMBOL("onread");
-  onencOutError_sym = NODE_PSYMBOL("onencOutError");
-  onclearInError_sym = NODE_PSYMBOL("onclearInError");
-  onclearOutError_sym = NODE_PSYMBOL("onclearOutError");
+  onerror_sym = NODE_PSYMBOL("onerror");
 }
 
 
