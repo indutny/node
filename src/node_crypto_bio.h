@@ -52,7 +52,7 @@ class NodeBIO {
   // Deallocate children of write head's child if they're empty
   void FreeEmpty();
 
-  // Return pointer to internal data and amout of
+  // Return pointer to internal data and amount of
   // contiguous data available to read
   char* Peek(size_t* size);
 

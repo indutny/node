@@ -47,11 +47,13 @@ TLSWrap::WriteItem::~WriteItem() {
 
 
 void TLSWrap::InvokeQueued(int status) {
-  QUEUE* q = NULL;
-  QUEUE_FOREACH(q, &write_item_queue_) {
+  QUEUE* q = reinterpret_cast<QUEUE*>(QUEUE_NEXT(&write_item_queue_));
+
+  while (q != &write_item_queue_) {
     WriteItem* wi = container_of(q, WriteItem, member_);
     wi->cb_(&wi->w_->req_, status);
     delete wi;
+    q = reinterpret_cast<QUEUE*>(QUEUE_NEXT(q));
   }
 
   // Empty queue
@@ -101,8 +103,7 @@ Handle<Value> TLSWrap::New(const Arguments& args) {
   HandleScope scope(node_isolate);
 
   if (args.Length() < 1)
-    return ThrowException(Exception::TypeError(String::New(
-            "First argument should be a SecureContext instance")));
+    return ThrowTypeError("First argument should be a SecureContext instance");
 
   TLSWrap* wrap = new TLSWrap(args.This(), args[0].As<Object>());
   assert(wrap);
@@ -139,7 +140,7 @@ void TLSWrap::EncOutCb(uv_write_t* req, int status) {
   // Handle error
   if (status) {
     SetErrno(uv_last_error(uv_default_loop()));
-    Handle<Value> arg = Integer::New(status, node_isolate);
+    Local<Value> arg = Integer::New(status, node_isolate);
     MakeCallback(wrap->object_, onerror_sym, 1, &arg);
     wrap->InvokeQueued(status);
     return;
@@ -217,7 +218,7 @@ void TLSWrap::ClearOut() {
 
 
 bool TLSWrap::ClearIn() {
-  int written;
+  int written = 0;
   while (clear_in_->Length() > 0) {
     size_t avail = 0;
     char* data = clear_in_->Peek(&avail);

@@ -207,6 +207,8 @@ void StreamWrap::HandleRead(uv_stream_t* handle,
                             ssize_t nread,
                             uv_buf_t buf,
                             uv_handle_type pending) {
+  HandleScope scope(node_isolate);
+
   Local<Object> slab = slab_allocator->Shrink(object_, buf.base, nread);
 
   if (nread == 0) return;
@@ -251,8 +253,10 @@ void StreamWrap::HandleFailedRead(uv_buf_t buf) {
 }
 
 
-void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
-    uv_buf_t buf, uv_handle_type pending) {
+void StreamWrap::OnReadCommon(uv_stream_t* handle,
+                              ssize_t nread,
+                              uv_buf_t buf,
+                              uv_handle_type pending) {
   HandleScope scope(node_isolate);
 
   StreamWrap* wrap = static_cast<StreamWrap*>(handle->data);

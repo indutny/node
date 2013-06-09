@@ -342,7 +342,8 @@ void NodeBIO::Commit(size_t size) {
 
 void NodeBIO::TryAllocateForWrite() {
   if (write_head_->write_pos_ == kBufferLength &&
-      write_head_->next_ == read_head_) {
+      (write_head_->next_ == read_head_ ||
+       write_head_->next_->write_pos_ < kBufferLength)) {
     Buffer* next = new Buffer();
     next->next_ = write_head_->next_;
     write_head_->next_ = next;
