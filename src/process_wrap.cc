@@ -113,7 +113,8 @@ class ProcessWrap : public HandleWrap {
             PipeWrap::Unwrap(stdio
                 ->Get(String::NewSymbol("handle")).As<Object>())->UVHandle());
       } else if (type->Equals(String::NewSymbol("wrap"))) {
-        uv_stream_t* stream = HandleToStream(stdio);
+        uv_stream_t* stream = HandleToStream(
+            stdio->Get(String::NewSymbol("handle")).As<Object>());
         assert(stream != NULL);
 
         options->stdio[i].flags = UV_INHERIT_STREAM;

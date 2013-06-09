@@ -30,6 +30,43 @@
 
 namespace node {
 
+// Forward-declarations
+class StreamWrap;
+class WriteWrap;
+
+typedef class ReqWrap<uv_shutdown_t> ShutdownWrap;
+
+// Overridable callbacks' types
+class StreamWrapCallbacks {
+ public:
+  StreamWrapCallbacks(StreamWrap* wrap) : wrap_(wrap) {
+  }
+
+  StreamWrapCallbacks(StreamWrapCallbacks* old) : wrap_(old->wrap_) {
+  }
+
+  virtual ~StreamWrapCallbacks() {
+  }
+
+  virtual int DoWrite(WriteWrap* w,
+                      uv_buf_t* bufs,
+                      int count,
+                      uv_stream_t* send_handle,
+                      uv_write_cb cb);
+  virtual uv_buf_t DoAlloc(uv_handle_t* handle, size_t suggested_size);
+  virtual void DoRead(uv_stream_t* handle,
+                      ssize_t nread,
+                      uv_buf_t buf,
+                      uv_handle_type pending);
+  virtual void OnReadFailure(uv_buf_t buf);
+  virtual int DoShutdown(ShutdownWrap* req_wrap, uv_shutdown_cb cb);
+
+  v8::Handle<v8::Object> Self();
+
+ protected:
+  StreamWrap* wrap_;
+};
+
 class WriteWrap: public ReqWrap<uv_write_t> {
  public:
   void* operator new(size_t size, char* storage) { return storage; }
@@ -45,11 +82,15 @@ class WriteWrap: public ReqWrap<uv_write_t> {
   void operator delete(void* ptr) { assert(0); };
 };
 
-typedef class ReqWrap<uv_shutdown_t> ShutdownWrap;
-
 class StreamWrap : public HandleWrap {
  public:
   uv_stream_t* GetStream() { return stream_; }
+
+  void OverrideCallbacks(StreamWrapCallbacks* callbacks) {
+    StreamWrapCallbacks* old = callbacks_;
+    callbacks_ = callbacks;
+    delete old;
+  }
 
   static void Initialize(v8::Handle<v8::Object> target);
 
@@ -67,24 +108,19 @@ class StreamWrap : public HandleWrap {
   static v8::Handle<v8::Value> WriteUtf8String(const v8::Arguments& args);
   static v8::Handle<v8::Value> WriteUcs2String(const v8::Arguments& args);
 
+  // Overridable callbacks
+  StreamWrapCallbacks* callbacks_;
+
  protected:
   static size_t WriteBuffer(v8::Handle<v8::Value> val, uv_buf_t* buf);
 
   StreamWrap(v8::Handle<v8::Object> object, uv_stream_t* stream);
+  ~StreamWrap() {
+    delete callbacks_;
+    callbacks_ = NULL;
+  }
   void StateChange() { }
   void UpdateWriteQueueSize();
-  virtual int DoWrite(WriteWrap* w,
-                      uv_buf_t* bufs,
-                      int count,
-                      uv_stream_t* send_handle,
-                      uv_write_cb cb);
-  virtual uv_buf_t DoAlloc(uv_handle_t* handle, size_t suggested_size);
-  virtual void DoRead(uv_stream_t* handle,
-                      ssize_t nread,
-                      uv_buf_t buf,
-                      uv_handle_type pending);
-  virtual void OnReadFailure(uv_buf_t buf);
-  virtual int DoShutdown(ShutdownWrap* req_wrap, uv_shutdown_cb cb);
 
  private:
   static inline char* NewSlab(v8::Handle<v8::Object> global, v8::Handle<v8::Object> wrap_obj);
@@ -105,6 +141,8 @@ class StreamWrap : public HandleWrap {
 
   size_t slab_offset_;
   uv_stream_t* stream_;
+
+  friend class StreamWrapCallbacks;
 };
 
 

@@ -25,7 +25,7 @@
 #include <openssl/ssl.h>
 
 #include "v8.h"
-#include "tcp_wrap.h"
+#include "stream_wrap.h"
 #include "queue.h"
 
 namespace node {
@@ -37,42 +37,14 @@ namespace crypto {
   class SecureContext;
 }
 
-class TLSWrap : public TCPWrap {
+class TLSCallbacks : public StreamWrapCallbacks {
  public:
-  static v8::Local<v8::Object> Instantiate(v8::Handle<v8::Value> sc);
-  static TLSWrap* Unwrap(v8::Local<v8::Object> obj);
-  static void Initialize(v8::Handle<v8::Object> target);
-
- protected:
-  static const int kClearOutChunkSize = 1024;
-
   enum Kind {
-    kClient,
-    kServer
+    kTLSClient,
+    kTLSServer
   };
 
-  class WriteItem {
-   public:
-    WriteItem(WriteWrap* w, uv_write_cb cb) : w_(w), cb_(cb) {
-    }
-    ~WriteItem();
-
-    WriteWrap* w_;
-    uv_write_cb cb_;
-    QUEUE member_;
-  };
-
-  TLSWrap(v8::Handle<v8::Object> object, v8::Handle<v8::Object> sc);
-  ~TLSWrap();
-
-  void InitSSL();
-  void EncOut();
-  static void EncOutCb(uv_write_t* req, int status);
-  bool ClearIn();
-  void ClearOut();
-  void InvokeQueued(int status);
-
-  v8::Handle<v8::Value> GetSSLError(int status, int* err);
+  static void Initialize(v8::Handle<v8::Object> target);
 
   int DoWrite(WriteWrap* w,
               uv_buf_t* bufs,
@@ -87,13 +59,41 @@ class TLSWrap : public TCPWrap {
   void OnReadFailure(uv_buf_t buf);
   int DoShutdown(ShutdownWrap* req_wrap, uv_shutdown_cb cb);
 
-  v8::Handle<v8::Object> Accept(uv_stream_t* server);
-  static v8::Handle<v8::Value> New(const v8::Arguments& args);
+ protected:
+  static const int kClearOutChunkSize = 1024;
 
-  crypto::SecureContext* sc_;
-  v8::Persistent<v8::Object> sc_handle_;
+  class WriteItem {
+   public:
+    WriteItem(WriteWrap* w, uv_write_cb cb) : w_(w), cb_(cb) {
+    }
+    ~WriteItem() {
+      w_ = NULL;
+      cb_ = NULL;
+    }
+
+    WriteWrap* w_;
+    uv_write_cb cb_;
+    QUEUE member_;
+  };
+
+  TLSCallbacks(Kind kind, v8::Handle<v8::Object> sc, StreamWrapCallbacks* old);
+  ~TLSCallbacks();
+
+  void InitSSL();
+  void EncOut();
+  static void EncOutCb(uv_write_t* req, int status);
+  bool ClearIn();
+  void ClearOut();
+  void InvokeQueued(int status);
+
+  v8::Handle<v8::Value> GetSSLError(int status, int* err);
+
+  static v8::Handle<v8::Value> Wrap(const v8::Arguments& args);
 
   Kind kind_;
+  crypto::SecureContext* sc_;
+  v8::Persistent<v8::Object> sc_handle_;
+  StreamWrapCallbacks* old_;
   SSL* ssl_;
   BIO* enc_in_;
   BIO* enc_out_;

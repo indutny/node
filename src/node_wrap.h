@@ -32,23 +32,35 @@
 
 namespace node {
 
+extern v8::Persistent<v8::FunctionTemplate> pipeConstructorTmpl;
+extern v8::Persistent<v8::FunctionTemplate> ttyConstructorTmpl;
+extern v8::Persistent<v8::FunctionTemplate> tcpConstructorTmpl;
+
+#define WITH_GENERIC_STREAM(obj, BODY)                    \
+    do {                                                  \
+      if (!pipeConstructorTmpl.IsEmpty() &&               \
+          pipeConstructorTmpl->HasInstance(obj)) {        \
+        PipeWrap* wrap = PipeWrap::Unwrap(obj);           \
+        BODY                                              \
+      } else if (!ttyConstructorTmpl.IsEmpty() &&         \
+                 ttyConstructorTmpl->HasInstance(obj)) {  \
+        TTYWrap* wrap = TTYWrap::Unwrap(obj);             \
+        BODY                                              \
+      } else if (!tcpConstructorTmpl.IsEmpty() &&         \
+                 tcpConstructorTmpl->HasInstance(obj)) {  \
+        TCPWrap* wrap = TCPWrap::Unwrap(obj);             \
+        BODY                                              \
+      }                                                   \
+    } while(0)
+
 inline uv_stream_t* HandleToStream(v8::Local<v8::Object> obj) {
-  uv_stream_t* stream = NULL;
-  Local<Value> wrapType = obj->Get(String::NewSymbol("wrapType"));
-  if (wrapType->Equals(String::NewSymbol("pipe"))) {
-    stream = reinterpret_cast<uv_stream_t*>(PipeWrap::Unwrap(obj
-        ->Get(String::NewSymbol("handle")).As<v8::Object>())->UVHandle());
-  } else if (wrapType->Equals(String::NewSymbol("tty"))) {
-    stream = reinterpret_cast<uv_stream_t*>(TTYWrap::Unwrap(obj
-        ->Get(String::NewSymbol("handle")).As<v8::Object>())->UVHandle());
-  } else if (wrapType->Equals(String::NewSymbol("tcp"))) {
-    stream = reinterpret_cast<uv_stream_t*>(TCPWrap::Unwrap(obj
-        ->Get(String::NewSymbol("handle")).As<v8::Object>())->UVHandle());
-  } else if (wrapType->Equals(String::NewSymbol("udp"))) {
-    stream = reinterpret_cast<uv_stream_t*>(UDPWrap::Unwrap(obj
-        ->Get(String::NewSymbol("handle")).As<v8::Object>())->UVHandle());
-  }
-  return stream;
+  v8::HandleScope scope(node_isolate);
+
+  WITH_GENERIC_STREAM(obj, {
+    return reinterpret_cast<uv_stream_t*>(wrap->UVHandle());
+  });
+
+  return NULL;
 }
 
 }
