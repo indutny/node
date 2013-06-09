@@ -78,11 +78,11 @@ class StreamWrap : public HandleWrap {
                       uv_write_cb cb);
   virtual uv_buf_t DoAlloc(uv_handle_t* handle, size_t suggested_size);
 
-  virtual void HandleRead(uv_stream_t* handle,
-                          ssize_t nread,
-                          uv_buf_t buf,
-                          uv_handle_type pending);
-  virtual void HandleFailedRead(uv_buf_t buf);
+  virtual void DoRead(uv_stream_t* handle,
+                      ssize_t nread,
+                      uv_buf_t buf,
+                      uv_handle_type pending);
+  virtual void OnReadFailure(uv_buf_t buf);
 
  private:
   static inline char* NewSlab(v8::Handle<v8::Object> global, v8::Handle<v8::Object> wrap_obj);

@@ -301,10 +301,10 @@ uv_buf_t TLSWrap::DoAlloc(uv_handle_t* handle, size_t suggested_size) {
 }
 
 
-void TLSWrap::HandleRead(uv_stream_t* handle,
-                         ssize_t nread,
-                         uv_buf_t buf,
-                         uv_handle_type pending) {
+void TLSWrap::DoRead(uv_stream_t* handle,
+                     ssize_t nread,
+                     uv_buf_t buf,
+                     uv_handle_type pending) {
   // Only client connections can receive data
   assert(ssl_ != NULL);
 
@@ -318,7 +318,7 @@ void TLSWrap::HandleRead(uv_stream_t* handle,
 }
 
 
-void TLSWrap::HandleFailedRead(uv_buf_t buf) {
+void TLSWrap::OnReadFailure(uv_buf_t buf) {
   // Ignore!
 }
 

@@ -74,11 +74,11 @@ class TLSWrap : public TCPWrap {
               uv_stream_t* send_handle,
               uv_write_cb cb);
   uv_buf_t DoAlloc(uv_handle_t* handle, size_t suggested_size);
-  void HandleRead(uv_stream_t* handle,
-                  ssize_t nread,
-                  uv_buf_t buf,
-                  uv_handle_type pending);
-  void HandleFailedRead(uv_buf_t buf);
+  void DoRead(uv_stream_t* handle,
+              ssize_t nread,
+              uv_buf_t buf,
+              uv_handle_type pending);
+  void OnReadFailure(uv_buf_t buf);
 
   v8::Handle<v8::Object> Accept(uv_stream_t* server);
   static v8::Handle<v8::Value> New(const v8::Arguments& args);

@@ -203,10 +203,10 @@ static Local<Object> AcceptHandle(uv_stream_t* pipe) {
 }
 
 
-void StreamWrap::HandleRead(uv_stream_t* handle,
-                            ssize_t nread,
-                            uv_buf_t buf,
-                            uv_handle_type pending) {
+void StreamWrap::DoRead(uv_stream_t* handle,
+                        ssize_t nread,
+                        uv_buf_t buf,
+                        uv_handle_type pending) {
   HandleScope scope(node_isolate);
 
   Local<Object> slab = slab_allocator->Shrink(object_, buf.base, nread);
@@ -247,7 +247,7 @@ void StreamWrap::HandleRead(uv_stream_t* handle,
 }
 
 
-void StreamWrap::HandleFailedRead(uv_buf_t buf) {
+void StreamWrap::OnReadFailure(uv_buf_t buf) {
   if (buf.base != NULL)
     slab_allocator->Shrink(object_, buf.base, 0);
 }
@@ -268,7 +268,7 @@ void StreamWrap::OnReadCommon(uv_stream_t* handle,
   if (nread < 0)  {
     // If libuv reports an error or EOF it *may* give us a buffer back. In that
     // case, return the space to the slab.
-    wrap->HandleFailedRead(buf);
+    wrap->OnReadFailure(buf);
 
     SetErrno(uv_last_error(uv_default_loop()));
     MakeCallback(wrap->object_, onread_sym, 0, NULL);
@@ -276,7 +276,7 @@ void StreamWrap::OnReadCommon(uv_stream_t* handle,
   }
 
   assert(buf.base != NULL);
-  wrap->HandleRead(handle, nread, buf, pending);
+  wrap->DoRead(handle, nread, buf, pending);
 }
 
 
