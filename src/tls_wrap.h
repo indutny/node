@@ -45,6 +45,12 @@ class TLSWrap : public TCPWrap {
 
  protected:
   static const int kClearOutChunkSize = 1024;
+
+  enum Kind {
+    kClient,
+    kServer
+  };
+
   class WriteItem {
    public:
     WriteItem(WriteWrap* w, uv_write_cb cb) : w_(w), cb_(cb) {
@@ -59,7 +65,7 @@ class TLSWrap : public TCPWrap {
   TLSWrap(v8::Handle<v8::Object> object, v8::Handle<v8::Object> sc);
   ~TLSWrap();
 
-  void InitClient();
+  void InitSSL();
   void EncOut();
   static void EncOutCb(uv_write_t* req, int status);
   bool ClearIn();
@@ -79,6 +85,7 @@ class TLSWrap : public TCPWrap {
               uv_buf_t buf,
               uv_handle_type pending);
   void OnReadFailure(uv_buf_t buf);
+  int DoShutdown(ShutdownWrap* req_wrap, uv_shutdown_cb cb);
 
   v8::Handle<v8::Object> Accept(uv_stream_t* server);
   static v8::Handle<v8::Value> New(const v8::Arguments& args);
@@ -86,6 +93,7 @@ class TLSWrap : public TCPWrap {
   crypto::SecureContext* sc_;
   v8::Persistent<v8::Object> sc_handle_;
 
+  Kind kind_;
   SSL* ssl_;
   BIO* enc_in_;
   BIO* enc_out_;

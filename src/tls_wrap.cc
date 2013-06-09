@@ -14,6 +14,7 @@ static Persistent<String> onerror_sym;
 
 
 TLSWrap::TLSWrap(Handle<Object> object, Handle<Object> sc) : TCPWrap(object),
+                                                             kind_(kClient),
                                                              ssl_(NULL),
                                                              enc_in_(NULL),
                                                              enc_out_(NULL),
@@ -61,14 +62,20 @@ void TLSWrap::InvokeQueued(int status) {
 }
 
 
-void TLSWrap::InitClient() {
+void TLSWrap::InitSSL() {
+  if (ssl_ != NULL)
+    return;
+
   // Initialize SSL
   ssl_ = SSL_new(sc_->ctx_);
   enc_in_ = BIO_new(NodeBIO::GetMethod());
   enc_out_ = BIO_new(NodeBIO::GetMethod());
 
-  SSL_set_accept_state(ssl_);
   SSL_set_bio(ssl_, enc_in_, enc_out_);
+  if (kind_ == kServer)
+    SSL_set_accept_state(ssl_);
+  else if (kind_ == kClient)
+    SSL_set_connect_state(ssl_);
 
   // Initialize ring for queud clear data
   clear_in_ = new NodeBIO();
@@ -250,6 +257,8 @@ int TLSWrap::DoWrite(WriteWrap* w,
                      int count,
                      uv_stream_t* send_handle,
                      uv_write_cb cb) {
+  InitSSL();
+
   assert(send_handle == NULL);
 
   // Queue callback to execute it on next tick
@@ -295,6 +304,8 @@ int TLSWrap::DoWrite(WriteWrap* w,
 
 
 uv_buf_t TLSWrap::DoAlloc(uv_handle_t* handle, size_t suggested_size) {
+  InitSSL();
+
   size_t size = suggested_size;
   char* data = NodeBIO::FromBIO(enc_in_)->Reserve(&size);
   return uv_buf_init(data, size);
@@ -323,6 +334,16 @@ void TLSWrap::OnReadFailure(uv_buf_t buf) {
 }
 
 
+int TLSWrap::DoShutdown(ShutdownWrap* req_wrap, uv_shutdown_cb cb) {
+  InitSSL();
+
+  if (SSL_shutdown(ssl_) == 0)
+    SSL_shutdown(ssl_);
+  EncOut();
+  return uv_shutdown(&req_wrap->req_, (uv_stream_t*) &handle_, cb);
+}
+
+
 Handle<Object> TLSWrap::Accept(uv_stream_t* server) {
   HandleScope scope(node_isolate);
 
@@ -340,7 +361,7 @@ Handle<Object> TLSWrap::Accept(uv_stream_t* server) {
     return Handle<Object>();
 
   // Initialize ssl connection
-  client_wrap->InitClient();
+  client_wrap->kind_ = kServer;
 
   return scope.Close(client_obj);
 }

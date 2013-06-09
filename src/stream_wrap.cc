@@ -56,8 +56,6 @@ using v8::String;
 using v8::TryCatch;
 using v8::Value;
 
-typedef class ReqWrap<uv_shutdown_t> ShutdownWrap;
-
 
 static Persistent<String> buffer_sym;
 static Persistent<String> bytes_sym;
@@ -597,6 +595,11 @@ void StreamWrap::AfterWrite(uv_write_t* req, int status) {
 }
 
 
+int StreamWrap::DoShutdown(ShutdownWrap* req_wrap, uv_shutdown_cb cb) {
+  return uv_shutdown(&req_wrap->req_, stream_, cb);
+}
+
+
 Handle<Value> StreamWrap::Shutdown(const Arguments& args) {
   HandleScope scope(node_isolate);
 
@@ -604,7 +607,7 @@ Handle<Value> StreamWrap::Shutdown(const Arguments& args) {
 
   ShutdownWrap* req_wrap = new ShutdownWrap();
 
-  int r = uv_shutdown(&req_wrap->req_, wrap->stream_, AfterShutdown);
+  int r = wrap->DoShutdown(req_wrap, AfterShutdown);
 
   req_wrap->Dispatched();
 

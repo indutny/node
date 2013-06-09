@@ -45,6 +45,8 @@ class WriteWrap: public ReqWrap<uv_write_t> {
   void operator delete(void* ptr) { assert(0); };
 };
 
+typedef class ReqWrap<uv_shutdown_t> ShutdownWrap;
+
 class StreamWrap : public HandleWrap {
  public:
   uv_stream_t* GetStream() { return stream_; }
@@ -77,12 +79,12 @@ class StreamWrap : public HandleWrap {
                       uv_stream_t* send_handle,
                       uv_write_cb cb);
   virtual uv_buf_t DoAlloc(uv_handle_t* handle, size_t suggested_size);
-
   virtual void DoRead(uv_stream_t* handle,
                       ssize_t nread,
                       uv_buf_t buf,
                       uv_handle_type pending);
   virtual void OnReadFailure(uv_buf_t buf);
+  virtual int DoShutdown(ShutdownWrap* req_wrap, uv_shutdown_cb cb);
 
  private:
   static inline char* NewSlab(v8::Handle<v8::Object> global, v8::Handle<v8::Object> wrap_obj);
