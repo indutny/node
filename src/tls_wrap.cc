@@ -335,7 +335,7 @@ int TLSCallbacks::DoShutdown(ShutdownWrap* req_wrap, uv_shutdown_cb cb) {
   if (SSL_shutdown(ssl_) == 0)
     SSL_shutdown(ssl_);
   EncOut();
-  return uv_shutdown(&req_wrap->req_, wrap_->GetStream(), cb);
+  return StreamWrapCallbacks::DoShutdown(req_wrap, cb);
 }
 
 
