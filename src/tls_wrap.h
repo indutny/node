@@ -79,6 +79,7 @@ class TLSCallbacks : public StreamWrapCallbacks {
   TLSCallbacks(Kind kind, v8::Handle<v8::Object> sc, StreamWrapCallbacks* old);
   ~TLSCallbacks();
 
+  void MaybeSecure();
   void InitSSL();
   void EncOut();
   static void EncOutCb(uv_write_t* req, int status);
@@ -89,11 +90,37 @@ class TLSCallbacks : public StreamWrapCallbacks {
   v8::Handle<v8::Value> GetSSLError(int status, int* err);
 
   static v8::Handle<v8::Value> Wrap(const v8::Arguments& args);
+  static v8::Handle<v8::Value> GetPeerCertificate(const v8::Arguments& args);
+  static v8::Handle<v8::Value> GetSession(const v8::Arguments& args);
+  static v8::Handle<v8::Value> SetSession(const v8::Arguments& args);
+  static v8::Handle<v8::Value> LoadSession(const v8::Arguments& args);
+  static v8::Handle<v8::Value> GetCurrentCipher(const v8::Arguments& args);
+  static v8::Handle<v8::Value> VerifyError(const v8::Arguments& args);
+
+#ifdef OPENSSL_NPN_NEGOTIATED
+  static v8::Handle<v8::Value> GetNegotiatedProto(const v8::Arguments& args);
+  static v8::Handle<v8::Value> SetNPNProtocols(const v8::Arguments& args);
+  static int AdvertiseNextProtoCallback(SSL* s,
+                                        const unsigned char** data,
+                                        unsigned int* len,
+                                        void* arg);
+  static int SelectNextProtoCallback(SSL* s,
+                                     unsigned char** out,
+                                     unsigned char* outlen,
+                                     const unsigned char* in,
+                                     unsigned int inlen,
+                                     void* arg);
+#endif // OPENSSL_NPN_NEGOTIATED
+
+#ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
+  static v8::Handle<v8::Value> GetServerName(const v8::Arguments& args);
+  static int SelectSNIContextCallback(SSL* s, int* ad, void* arg);
+#endif // SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
 
   Kind kind_;
   crypto::SecureContext* sc_;
   v8::Persistent<v8::Object> sc_handle_;
-  StreamWrapCallbacks* old_;
+  v8::Persistent<v8::Object> handle_;
   SSL* ssl_;
   BIO* enc_in_;
   BIO* enc_out_;
@@ -101,6 +128,17 @@ class TLSCallbacks : public StreamWrapCallbacks {
   uv_write_t write_req_;
   size_t write_size_;
   QUEUE write_item_queue_;
+  bool initialized_;
+
+#ifdef OPENSSL_NPN_NEGOTIATED
+  v8::Persistent<v8::Object> npn_protos_;
+  v8::Persistent<v8::Value> selected_npn_proto_;
+#endif // OPENSSL_NPN_NEGOTIATED
+
+#ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
+  v8::Persistent<v8::String> servername_;
+  v8::Persistent<v8::Value> sni_context_;
+#endif // SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
 };
 
 } // namespace node

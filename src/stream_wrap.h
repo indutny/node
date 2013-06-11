@@ -92,6 +92,10 @@ class StreamWrap : public HandleWrap {
     delete old;
   }
 
+  StreamWrapCallbacks* GetCallbacks() {
+    return callbacks_;
+  }
+
   static void Initialize(v8::Handle<v8::Object> target);
 
   static v8::Handle<v8::Value> GetFD(v8::Local<v8::String>,
