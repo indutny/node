@@ -10,9 +10,10 @@ using namespace v8;
 using crypto::SecureContext;
 
 static Persistent<String> onread_sym;
-static Persistent<String> onsecure_sym;
 static Persistent<String> onerror_sym;
 static Persistent<String> onsniselect_sym;
+static Persistent<String> onhandshakestart_sym;
+static Persistent<String> onhandshakedone_sym;
 static Persistent<String> subject_sym;
 static Persistent<String> subjectaltname_sym;
 static Persistent<String> modulus_sym;
@@ -107,17 +108,6 @@ void TLSCallbacks::InvokeQueued(int status) {
 }
 
 
-void TLSCallbacks::MaybeSecure() {
-  if (ssl_ != NULL && !initialized_ && SSL_is_init_finished(ssl_)) {
-    HandleScope scope(node_isolate);
-
-    initialized_ = true;
-    Handle<Value> argv = Boolean::New(SSL_session_reused(ssl_));
-    MakeCallback(handle_, onsecure_sym, 1, &argv);
-  }
-}
-
-
 void TLSCallbacks::InitSSL() {
   if (ssl_ != NULL)
     return;
@@ -128,8 +118,16 @@ void TLSCallbacks::InitSSL() {
   enc_out_ = BIO_new(NodeBIO::GetMethod());
 
   SSL_set_bio(ssl_, enc_in_, enc_out_);
+
+#ifdef SSL_MODE_RELEASE_BUFFERS
+  long mode = SSL_get_mode(ssl_);
+  SSL_set_mode(ssl_, mode | SSL_MODE_RELEASE_BUFFERS);
+#endif
+
   if (kind_ == kTLSServer) {
     SSL_set_accept_state(ssl_);
+    SSL_set_app_data(ssl_, this);
+    SSL_set_info_callback(ssl_, SSLInfoCallback);
 
 #ifdef OPENSSL_NPN_NEGOTIATED
     // Server should advertise NPN protocols
@@ -191,6 +189,23 @@ Handle<Value> TLSCallbacks::Wrap(const Arguments& args) {
 }
 
 
+void TLSCallbacks::SSLInfoCallback(const SSL* ssl_, int where, int ret) {
+  // Be compatible with older versions of OpenSSL. SSL_get_app_data() wants
+  // a non-const SSL* in OpenSSL <= 0.9.7e.
+  SSL* ssl = const_cast<SSL*>(ssl_);
+  if (where & SSL_CB_HANDSHAKE_START) {
+    HandleScope scope(node_isolate);
+    TLSCallbacks* c = static_cast<TLSCallbacks*>(SSL_get_app_data(ssl));
+    MakeCallback(c->handle_, onhandshakestart_sym, 0, NULL);
+  }
+  if (where & SSL_CB_HANDSHAKE_DONE) {
+    HandleScope scope(node_isolate);
+    TLSCallbacks* c = static_cast<TLSCallbacks*>(SSL_get_app_data(ssl));
+    MakeCallback(c->handle_, onhandshakedone_sym, 0, NULL);
+  }
+}
+
+
 void TLSCallbacks::EncOut() {
   // Write in progress
   if (write_size_ != 0)
@@ -201,7 +216,6 @@ void TLSCallbacks::EncOut() {
     InvokeQueued(0);
     return;
   }
-  MaybeSecure();
 
   char* data = NodeBIO::FromBIO(enc_out_)->Peek(&write_size_);
   assert(write_size_ != 0);
@@ -284,7 +298,6 @@ void TLSCallbacks::ClearOut() {
         Integer::New(read, node_isolate)
       };
       // Emit onsecure callback if its time
-      MaybeSecure();
       MakeCallback(Self(), onread_sym, ARRAY_SIZE(argv), argv);
     }
   } while (read > 0);
@@ -539,6 +552,18 @@ Handle<Value> TLSCallbacks::VerifyError(const Arguments& args) {
   }
 
   return scope.Close(Exception::Error(s));
+}
+
+
+Handle<Value> TLSCallbacks::IsSessionReused(const Arguments& args) {
+  HandleScope scope(node_isolate);
+
+  UNWRAP(TLSCallbacks);
+
+  if (wrap->ssl_ == NULL)
+    return Null(node_isolate);
+
+  return scope.Close(Boolean::New(SSL_session_reused(wrap->ssl_)));
 }
 
 
@@ -952,6 +977,7 @@ void TLSCallbacks::Initialize(Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(t, "setSession", SetSession);
   NODE_SET_PROTOTYPE_METHOD(t, "getCurrentCipher", GetCurrentCipher);
   NODE_SET_PROTOTYPE_METHOD(t, "verifyError", VerifyError);
+  NODE_SET_PROTOTYPE_METHOD(t, "isSessionReused", IsSessionReused);
 
 #ifdef OPENSSL_NPN_NEGOTIATED
   NODE_SET_PROTOTYPE_METHOD(t, "getNegotiatedProtocol", GetNegotiatedProto);
@@ -965,9 +991,10 @@ void TLSCallbacks::Initialize(Handle<Object> target) {
   tlsWrap = Persistent<Function>::New(node_isolate, t->GetFunction());
 
   onread_sym = NODE_PSYMBOL("onread");
-  onsecure_sym = NODE_PSYMBOL("onsecure");
   onsniselect_sym = NODE_PSYMBOL("onsniselect");
   onerror_sym = NODE_PSYMBOL("onerror");
+  onhandshakestart_sym = NODE_PSYMBOL("onhandshakestart");
+  onhandshakedone_sym = NODE_PSYMBOL("onhandshakedone");
 
   subject_sym = NODE_PSYMBOL("subject");
   issuer_sym = NODE_PSYMBOL("issuer");

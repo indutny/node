@@ -79,7 +79,7 @@ class TLSCallbacks : public StreamWrapCallbacks {
   TLSCallbacks(Kind kind, v8::Handle<v8::Object> sc, StreamWrapCallbacks* old);
   ~TLSCallbacks();
 
-  void MaybeSecure();
+  static void SSLInfoCallback(const SSL* ssl_, int where, int ret);
   void InitSSL();
   void EncOut();
   static void EncOutCb(uv_write_t* req, int status);
@@ -96,6 +96,7 @@ class TLSCallbacks : public StreamWrapCallbacks {
   static v8::Handle<v8::Value> LoadSession(const v8::Arguments& args);
   static v8::Handle<v8::Value> GetCurrentCipher(const v8::Arguments& args);
   static v8::Handle<v8::Value> VerifyError(const v8::Arguments& args);
+  static v8::Handle<v8::Value> IsSessionReused(const v8::Arguments& args);
 
 #ifdef OPENSSL_NPN_NEGOTIATED
   static v8::Handle<v8::Value> GetNegotiatedProto(const v8::Arguments& args);
