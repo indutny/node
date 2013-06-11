@@ -96,6 +96,7 @@ class TLSCallbacks : public StreamWrapCallbacks {
   static v8::Handle<v8::Value> LoadSession(const v8::Arguments& args);
   static v8::Handle<v8::Value> GetCurrentCipher(const v8::Arguments& args);
   static v8::Handle<v8::Value> VerifyError(const v8::Arguments& args);
+  static v8::Handle<v8::Value> SetVerifyMode(const v8::Arguments& args);
   static v8::Handle<v8::Value> IsSessionReused(const v8::Arguments& args);
 
 #ifdef OPENSSL_NPN_NEGOTIATED

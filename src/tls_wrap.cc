@@ -108,6 +108,52 @@ void TLSCallbacks::InvokeQueued(int status) {
 }
 
 
+static int VerifyCallback(int preverify_ok, X509_STORE_CTX *ctx) {
+  // Quoting SSL_set_verify(3ssl):
+  //
+  //   The VerifyCallback function is used to control the behaviour when
+  //   the SSL_VERIFY_PEER flag is set. It must be supplied by the
+  //   application and receives two arguments: preverify_ok indicates,
+  //   whether the verification of the certificate in question was passed
+  //   (preverify_ok=1) or not (preverify_ok=0). x509_ctx is a pointer to
+  //   the complete context used for the certificate chain verification.
+  //
+  //   The certificate chain is checked starting with the deepest nesting
+  //   level (the root CA certificate) and worked upward to the peer's
+  //   certificate.  At each level signatures and issuer attributes are
+  //   checked.  Whenever a verification error is found, the error number is
+  //   stored in x509_ctx and VerifyCallback is called with preverify_ok=0.
+  //   By applying X509_CTX_store_* functions VerifyCallback can locate the
+  //   certificate in question and perform additional steps (see EXAMPLES).
+  //   If no error is found for a certificate, VerifyCallback is called
+  //   with preverify_ok=1 before advancing to the next level.
+  //
+  //   The return value of VerifyCallback controls the strategy of the
+  //   further verification process. If VerifyCallback returns 0, the
+  //   verification process is immediately stopped with "verification
+  //   failed" state. If SSL_VERIFY_PEER is set, a verification failure
+  //   alert is sent to the peer and the TLS/SSL handshake is terminated. If
+  //   VerifyCallback returns 1, the verification process is continued. If
+  //   VerifyCallback always returns 1, the TLS/SSL handshake will not be
+  //   terminated with respect to verification failures and the connection
+  //   will be established. The calling process can however retrieve the
+  //   error code of the last verification error using
+  //   SSL_get_verify_result(3) or by maintaining its own error storage
+  //   managed by VerifyCallback.
+  //
+  //   If no VerifyCallback is specified, the default callback will be
+  //   used.  Its return value is identical to preverify_ok, so that any
+  //   verification failure will lead to a termination of the TLS/SSL
+  //   handshake with an alert message, if SSL_VERIFY_PEER is set.
+  //
+  // Since we cannot perform I/O quickly enough in this callback, we ignore
+  // all preverify_ok errors and let the handshake continue. It is
+  // imparative that the user use Connection::VerifyError after the
+  // 'secure' callback has been made.
+  return 1;
+}
+
+
 void TLSCallbacks::InitSSL() {
   if (ssl_ != NULL)
     return;
@@ -118,6 +164,9 @@ void TLSCallbacks::InitSSL() {
   enc_out_ = BIO_new(NodeBIO::GetMethod());
 
   SSL_set_bio(ssl_, enc_in_, enc_out_);
+
+  // NOTE: This could be overriden in SetVerifyMode
+  SSL_set_verify(ssl_, SSL_VERIFY_NONE, VerifyCallback);
 
 #ifdef SSL_MODE_RELEASE_BUFFERS
   long mode = SSL_get_mode(ssl_);
@@ -555,6 +604,40 @@ Handle<Value> TLSCallbacks::VerifyError(const Arguments& args) {
 }
 
 
+Handle<Value> TLSCallbacks::SetVerifyMode(const Arguments& args) {
+  HandleScope scope(node_isolate);
+
+  UNWRAP(TLSCallbacks);
+
+  if (args.Length() < 2 || !args[0]->IsBoolean() || !args[1]->IsBoolean())
+    return ThrowTypeError("Bad arguments, expected two booleans");
+
+  if (wrap->ssl_ == NULL)
+    return Null(node_isolate);
+
+  int verify_mode;
+  if (wrap->kind_ == kTLSServer) {
+    bool request_cert = args[0]->IsTrue();
+    if (!request_cert) {
+      // Note reject_unauthorized ignored.
+      verify_mode = SSL_VERIFY_NONE;
+    } else {
+      bool reject_unauthorized = args[1]->IsTrue();
+      verify_mode = SSL_VERIFY_PEER;
+      if (reject_unauthorized) verify_mode |= SSL_VERIFY_FAIL_IF_NO_PEER_CERT;
+    }
+  } else {
+    // Note request_cert and reject_unauthorized are ignored for clients.
+    verify_mode = SSL_VERIFY_NONE;
+  }
+
+  // Always allow a connection. We'll reject in javascript.
+  SSL_set_verify(wrap->ssl_, verify_mode, VerifyCallback);
+
+  return True(node_isolate);
+}
+
+
 Handle<Value> TLSCallbacks::IsSessionReused(const Arguments& args) {
   HandleScope scope(node_isolate);
 
@@ -949,7 +1032,7 @@ int TLSCallbacks::SelectSNIContextCallback(SSL* s, int* ad, void* arg) {
                                                         argv));
 
       // If ret is SecureContext
-      if (!ret->IsFalse())
+      if (ret->IsUndefined())
         return SSL_TLSEXT_ERR_NOACK;
 
       p->sni_context_ = Persistent<Value>::New(node_isolate, ret);
@@ -977,6 +1060,7 @@ void TLSCallbacks::Initialize(Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(t, "setSession", SetSession);
   NODE_SET_PROTOTYPE_METHOD(t, "getCurrentCipher", GetCurrentCipher);
   NODE_SET_PROTOTYPE_METHOD(t, "verifyError", VerifyError);
+  NODE_SET_PROTOTYPE_METHOD(t, "setVerifyMode", SetVerifyMode);
   NODE_SET_PROTOTYPE_METHOD(t, "isSessionReused", IsSessionReused);
 
 #ifdef OPENSSL_NPN_NEGOTIATED
