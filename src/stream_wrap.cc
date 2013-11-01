@@ -37,6 +37,7 @@
 namespace node {
 
 using v8::Object;
+using v8::Array;
 using v8::Handle;
 using v8::Local;
 using v8::Persistent;
@@ -247,8 +248,8 @@ size_t StreamWrap::WriteBuffer(WriteWrap* req,
   assert(Buffer::HasInstance(val));
 
   // Simple non-writev case
-  buf->base = Buffer::Data(val);
-  buf->len = Buffer::Length(val);
+  buf->base = Buffer::Data(val.As<Object>());
+  buf->len = Buffer::Length(val.As<Object>());
 
   return buf->len;
 }
@@ -265,8 +266,8 @@ size_t StreamWrap::WriteStringImpl(char* storage,
   size_t data_size;
   switch (encoding) {
    case kAscii:
-    data_size = string->WriteOneByte(
-        reinterpret_cast<uint8_t*>(storage),
+    data_size = string->WriteAscii(
+        storage,
         0,
         -1,
         String::NO_NULL_TERMINATION | String::HINT_MANY_WRITES_EXPECTED);
@@ -350,8 +351,8 @@ Handle<Value> StreamWrap::WriteBuffer(const Arguments& args) {
   UNWRAP(StreamWrap)
 
   // The first argument is a buffer.
-  assert(args.Length() >= 1 && Buffer::HasInstance(args[0]));
-  size_t length = Buffer::Length(args[0]);
+  assert(args.Length() >= 1 && Buffer::HasInstance(args[0].As<Object>()));
+  size_t length = Buffer::Length(args[0].As<Object>());
 
   if (length > INT_MAX) {
     uv_err_t err;
@@ -520,7 +521,7 @@ Handle<Value> StreamWrap::Writev(const Arguments& args) {
     uv_err_t err;
     err.code = UV_ENOBUFS;
     SetErrno(err);
-    return scope.Close(v8::Null(node_isolate));
+    return scope.Close(v8::Null());
   }
 
   storage_size += sizeof(WriteWrap);
@@ -590,14 +591,8 @@ Handle<Value> StreamWrap::Writev(const Arguments& args) {
     SetErrno(uv_last_error(uv_default_loop()));
     req_wrap->~WriteWrap();
     delete[] storage;
-    return scope.Close(v8::Null(node_isolate));
+    return scope.Close(v8::Null());
   } else {
-    if (wrap->stream_->type == UV_TCP) {
-      NODE_COUNT_NET_BYTES_SENT(bytes);
-    } else if (wrap->stream_->type == UV_NAMED_PIPE) {
-      NODE_COUNT_PIPE_BYTES_SENT(bytes);
-    }
-
     return scope.Close(req_wrap->object_);
   }
 }
