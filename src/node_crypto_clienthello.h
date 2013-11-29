@@ -108,9 +108,9 @@ class ClientHelloParser {
                       const uint8_t* data,
                       size_t len);
   bool ParseTLSClientHello(const uint8_t* data, size_t avail);
-#ifdef OPENSSL_NO_SSL2
+#ifndef OPENSSL_NO_SSL2
   bool ParseSSL2ClientHello(const uint8_t* data, size_t avail);
-#endif  // OPENSSL_NO_SSL2
+#endif  // !OPENSSL_NO_SSL2
 
   ParseState state_;
   OnHelloCb onhello_cb_;

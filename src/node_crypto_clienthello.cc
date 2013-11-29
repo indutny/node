@@ -59,7 +59,7 @@ bool ClientHelloParser::ParseRecordHeader(const uint8_t* data, size_t avail) {
     state_ = kTLSHeader;
     body_offset_ = 5;
   } else {
-#ifdef OPENSSL_NO_SSL2
+#ifndef OPENSSL_NO_SSL2
     frame_len_ = ((data[0] << 8) & kSSL2HeaderMask) + data[1];
     state_ = kSSL2Header;
     if (data[0] & kSSL2TwoByteHeaderBit) {
@@ -72,7 +72,7 @@ bool ClientHelloParser::ParseRecordHeader(const uint8_t* data, size_t avail) {
 #else
     End();
     return false;
-#endif  // OPENSSL_NO_SSL2
+#endif  // !OPENSSL_NO_SSL2
   }
 
   // Sanity check (too big frame, or too small)
@@ -99,12 +99,12 @@ void ClientHelloParser::ParseHeader(const uint8_t* data, size_t avail) {
       if (!ParseTLSClientHello(data, avail))
         return End();
     } else if (state_ == kSSL2Header) {
-#ifdef OPENSSL_NO_SSL2
+#ifndef OPENSSL_NO_SSL2
       if (!ParseSSL2ClientHello(data, avail))
         return End();
 #else
       abort();  // Unreachable
-#endif  // OPENSSL_NO_SSL2
+#endif  // !OPENSSL_NO_SSL2
     } else {
       // We couldn't get here, but whatever
       return End();
@@ -239,7 +239,7 @@ bool ClientHelloParser::ParseTLSClientHello(const uint8_t* data, size_t avail) {
 }
 
 
-#ifdef OPENSSL_NO_SSL2
+#ifndef OPENSSL_NO_SSL2
 bool ClientHelloParser::ParseSSL2ClientHello(const uint8_t* data,
                                              size_t avail) {
   const uint8_t* body;
@@ -260,6 +260,6 @@ bool ClientHelloParser::ParseSSL2ClientHello(const uint8_t* data,
 
   return true;
 }
-#endif  // OPENSSL_NO_SSL2
+#endif  // !OPENSSL_NO_SSL2
 
 }  // namespace node
