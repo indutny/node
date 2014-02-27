@@ -4219,7 +4219,7 @@ void FullCodeGenerator::VisitDTraceProbe(DTraceProbe* expr) {
   Label t, done;
 
   __ xor_(rax, rax);
-  __ RecordDTrace();
+  __ RecordDTrace(expr->desc());
   __ int3();
   __ Nop(2);
 

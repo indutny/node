@@ -26,6 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "dtrace.h"
+#include "checks.h"
 
 #include <fcntl.h>
 #include <sys/dtrace.h>
@@ -38,7 +39,7 @@ class DTraceImpl {
  public:
   DTraceImpl();
 
-  int RegisterEnabler(byte* pc, const char* mod);
+  int RegisterEnabler(byte* pc);
 
  private:
   int fd_;
@@ -72,7 +73,7 @@ void DTrace::Relocate(byte* pc, intptr_t delta) {
 #endif
 
   ASSERT(!reinit && "Reinit is not supported yet");
-  ASSERT(impl->RegisterEnabler(pc) == 0, "v8");
+  ASSERT(impl.RegisterEnabler(pc) == 0);
 }
 
 }  // namespace internal

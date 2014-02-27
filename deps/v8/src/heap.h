@@ -1746,6 +1746,8 @@ class Heap {
     scavenging_visitors_table_.GetVisitor(map)(map, slot, obj);
   }
 
+  inline List<DTraceProbeDesc>* dtrace_probes() const { return dtrace_probes_; }
+
   void QueueMemoryChunkForFree(MemoryChunk* chunk);
   void FreeQueuedChunks();
 
@@ -2057,6 +2059,8 @@ class Heap {
     bool pass_isolate_;
   };
   List<GCEpilogueCallbackPair> gc_epilogue_callbacks_;
+
+  List<DTraceProbeDesc> dtrace_probes_;
 
   // Support for computing object sizes during GC.
   HeapObjectCallback gc_safe_size_of_old_object_;

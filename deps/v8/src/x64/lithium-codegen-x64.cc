@@ -3880,7 +3880,7 @@ void LCodeGen::DoDTraceProbe(LDTraceProbe* instr) {
 
   __ xor_(rax, rax);
 
-  __ RecordDTrace();
+  __ RecordDTrace(instr->hydrogen()->ast()->desc());
   __ int3();
   __ Nop(2);
 

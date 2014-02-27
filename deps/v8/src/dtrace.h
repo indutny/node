@@ -36,8 +36,5 @@ class DTrace {
   static void Relocate(byte* pc, intptr_t delta);
 };
 
-class DTraceProbe {
-};
-
 }  // namespace internal
 }  // namespace v8
