@@ -560,6 +560,7 @@ Parser::Parser(CompilationInfo* info)
   set_allow_lazy(false);  // Must be explicitly enabled.
   set_allow_generators(FLAG_harmony_generators);
   set_allow_for_of(FLAG_harmony_iteration);
+  set_allow_dtrace_probes(FLAG_allow_dtrace_probes);
   set_allow_harmony_numeric_literals(FLAG_harmony_numeric_literals);
 }
 
@@ -3620,7 +3621,9 @@ Expression* Parser::ParsePrimaryExpression(bool* ok) {
       break;
 
     case Token::MOD:
-      if (allow_natives_syntax() || extension_ != NULL) {
+      if (allow_dtrace_probes() ||
+          allow_natives_syntax() ||
+          extension_ != NULL) {
         result = ParseV8Intrinsic(CHECK_OK);
         break;
       }
@@ -4564,6 +4567,31 @@ Expression* Parser::ParseV8Intrinsic(bool* ok) {
     // The extension structures are only accessible while parsing the
     // very first time not when reparsing because of lazy compilation.
     top_scope_->DeclarationScope()->ForceEagerCompilation();
+  }
+
+  if (name->length() == 6 &&
+      name->Get(0) == 'd' &&
+      name->Get(1) == 't' &&
+      name->Get(2) == 'r' &&
+      name->Get(3) == 'a' &&
+      name->Get(4) == 'c' &&
+      name->Get(5) == 'e') {
+    if (args->length() > 4) {
+      ReportMessage("dtrace_oob", Vector<const char*>::empty());
+      *ok = false;
+      return NULL;
+    }
+
+    for (int i = 0; i < args->length(); i++) {
+      if (!args->at(i)->IsLiteral() ||
+          !args->at(i)->AsLiteral()->value()->IsString()) {
+        ReportMessage("dtrace_arg", Vector<const char*>::empty());
+        *ok = false;
+        return NULL;
+      }
+    }
+
+    return factory()->NewDTraceProbe(args, pos);
   }
 
   const Runtime::Function* function = Runtime::FunctionForName(name);

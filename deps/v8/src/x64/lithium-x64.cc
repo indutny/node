@@ -1319,6 +1319,12 @@ LInstruction* LChunkBuilder::DoCallRuntime(HCallRuntime* instr) {
 }
 
 
+LInstruction* LChunkBuilder::DoDTraceProbe(HDTraceProbe* instr) {
+  LDTraceProbe* probe = new(zone()) LDTraceProbe();
+  return DefineFixed(probe, rax);
+}
+
+
 LInstruction* LChunkBuilder::DoRor(HRor* instr) {
   return DoShift(Token::ROR, instr);
 }

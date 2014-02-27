@@ -4214,6 +4214,28 @@ void FullCodeGenerator::VisitCallRuntime(CallRuntime* expr) {
 }
 
 
+void FullCodeGenerator::VisitDTraceProbe(DTraceProbe* expr) {
+  Comment cmnt(masm_, "[ DTraceProbe");
+  Label t, done;
+
+  __ xor_(rax, rax);
+  __ RecordDTrace();
+  __ int3();
+  __ Nop(2);
+
+  __ cmpq(rax, rax);
+  __ j(not_equal, &t);
+
+  __ LoadRoot(rax, Heap::kFalseValueRootIndex);
+  __ jmp(&done);
+
+  __ bind(&t);
+  __ LoadRoot(rax, Heap::kTrueValueRootIndex);
+  __ bind(&done);
+  context()->Plug(rax);
+}
+
+
 void FullCodeGenerator::VisitUnaryOperation(UnaryOperation* expr) {
   switch (expr->op()) {
     case Token::DELETE: {

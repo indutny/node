@@ -91,6 +91,7 @@ class LCodeGen;
   V(DoubleToI)                                  \
   V(DoubleToSmi)                                \
   V(Drop)                                       \
+  V(DTraceProbe)                                \
   V(DummyUse)                                   \
   V(Dummy)                                      \
   V(ElementsKind)                               \
@@ -1910,6 +1911,13 @@ class LCallRuntime V8_FINAL : public LTemplateInstruction<1, 0, 0> {
   const Runtime::Function* function() const { return hydrogen()->function(); }
   int arity() const { return hydrogen()->argument_count(); }
   SaveFPRegsMode save_doubles() const { return hydrogen()->save_doubles(); }
+};
+
+
+class LDTraceProbe V8_FINAL : public LTemplateInstruction<1, 0, 0> {
+ public:
+  DECLARE_CONCRETE_INSTRUCTION(DTraceProbe, "dtrace-probe")
+  DECLARE_HYDROGEN_ACCESSOR(DTraceProbe)
 };
 
 

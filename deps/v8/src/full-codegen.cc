@@ -279,6 +279,10 @@ void BreakableStatementChecker::VisitCallRuntime(CallRuntime* expr) {
 }
 
 
+void BreakableStatementChecker::VisitDTraceProbe(DTraceProbe* expr) {
+}
+
+
 void BreakableStatementChecker::VisitUnaryOperation(UnaryOperation* expr) {
   Visit(expr->expression());
 }

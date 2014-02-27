@@ -3080,9 +3080,16 @@ void Assembler::RecordComment(const char* msg, bool force) {
 }
 
 
+void Assembler::RecordDTrace() {
+  EnsureSpace ensure_space(this);
+  RecordRelocInfo(RelocInfo::DTRACE, 0);
+}
+
+
 const int RelocInfo::kApplyMask = RelocInfo::kCodeTargetMask |
     1 << RelocInfo::RUNTIME_ENTRY |
     1 << RelocInfo::INTERNAL_REFERENCE |
+    1 << RelocInfo::DTRACE |
     1 << RelocInfo::CODE_AGE_SEQUENCE;
 
 

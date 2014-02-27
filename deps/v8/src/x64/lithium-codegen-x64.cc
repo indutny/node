@@ -3874,6 +3874,28 @@ void LCodeGen::DoCallRuntime(LCallRuntime* instr) {
 }
 
 
+void LCodeGen::DoDTraceProbe(LDTraceProbe* instr) {
+  ASSERT(instr != NULL);
+  Label t, done;
+
+  __ xor_(rax, rax);
+
+  __ RecordDTrace();
+  __ int3();
+  __ Nop(2);
+
+  __ cmpq(rax, rax);
+  __ j(not_equal, &t);
+
+  __ LoadRoot(rax, Heap::kFalseValueRootIndex);
+  __ jmp(&done);
+
+  __ bind(&t);
+  __ LoadRoot(rax, Heap::kTrueValueRootIndex);
+  __ bind(&done);
+}
+
+
 void LCodeGen::DoStoreCodeEntry(LStoreCodeEntry* instr) {
   Register function = ToRegister(instr->function());
   Register code_object = ToRegister(instr->code_object());

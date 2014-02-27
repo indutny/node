@@ -108,6 +108,7 @@ class LChunkBuilder;
   V(DebugBreak)                                \
   V(DeclareGlobals)                            \
   V(Deoptimize)                                \
+  V(DTraceProbe)                               \
   V(Div)                                       \
   V(DummyUse)                                  \
   V(ElementsKind)                              \
@@ -2431,6 +2432,27 @@ class HCallRuntime V8_FINAL : public HCall<1> {
   const Runtime::Function* c_function_;
   Handle<String> name_;
   SaveFPRegsMode save_doubles_;
+};
+
+
+class HDTraceProbe V8_FINAL : public HTemplateInstruction<0> {
+ public:
+  DECLARE_INSTRUCTION_FACTORY_P1(HDTraceProbe, DTraceProbe*);
+
+  virtual Representation RequiredInputRepresentation(int index) V8_OVERRIDE {
+    return Representation::Tagged();
+  }
+
+  virtual void PrintDataTo(StringStream* stream) V8_OVERRIDE;
+
+  inline DTraceProbe* ast() const { return ast_; }
+
+  DECLARE_CONCRETE_INSTRUCTION(DTraceProbe)
+
+ private:
+  HDTraceProbe(DTraceProbe* ast) : ast_(ast) {}
+
+  DTraceProbe* ast_;
 };
 
 

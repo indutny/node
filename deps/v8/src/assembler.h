@@ -271,6 +271,7 @@ class RelocInfo BASE_EMBEDDED {
     RUNTIME_ENTRY,
     JS_RETURN,  // Marks start of the ExitJSFrame code.
     COMMENT,
+    DTRACE,
     POSITION,  // See comment for kNoPosition above.
     STATEMENT_POSITION,  // See comment for kNoPosition above.
     DEBUG_BREAK_SLOT,  // Additional code inserted for debug break slot.
@@ -339,6 +340,9 @@ class RelocInfo BASE_EMBEDDED {
   }
   static inline bool IsComment(Mode mode) {
     return mode == COMMENT;
+  }
+  static inline bool IsDTrace(Mode mode) {
+    return mode == DTRACE;
   }
   static inline bool IsConstPool(Mode mode) {
     return mode == CONST_POOL;

@@ -498,6 +498,17 @@ void AstTyper::VisitCallRuntime(CallRuntime* expr) {
 }
 
 
+void AstTyper::VisitDTraceProbe(DTraceProbe* expr) {
+  ZoneList<Expression*>* args = expr->arguments();
+  for (int i = 0; i < args->length(); ++i) {
+    Expression* arg = args->at(i);
+    RECURSE(Visit(arg));
+  }
+
+  // We don't know anything about the result type.
+}
+
+
 void AstTyper::VisitUnaryOperation(UnaryOperation* expr) {
   // Collect type feedback.
   if (expr->op() == Token::NOT) {

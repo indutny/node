@@ -999,6 +999,15 @@ void HCallRuntime::PrintDataTo(StringStream* stream) {
 }
 
 
+void HDTraceProbe::PrintDataTo(StringStream* stream) {
+  stream->Add("dtrace ");
+  for (int i = 0; i < ast()->arguments()->length(); i++) {
+    Literal* arg = ast()->arguments()->at(i)->AsLiteral();
+    arg->AsPropertyName()->StringShortPrint(stream);
+  }
+}
+
+
 void HClassOfTestAndBranch::PrintDataTo(StringStream* stream) {
   stream->Add("class_of_test(");
   value()->PrintNameTo(stream);

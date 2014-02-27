@@ -1426,10 +1426,11 @@ PreParser::Expression PreParser::ParseV8Intrinsic(bool* ok) {
   // CallRuntime ::
   //   '%' Identifier Arguments
   Expect(Token::MOD, CHECK_OK);
-  if (!allow_natives_syntax()) {
+  if (!allow_natives_syntax() && !allow_dtrace_probes()) {
     *ok = false;
     return Expression::Default();
   }
+
   ParseIdentifier(CHECK_OK);
   ParseArguments(ok);
 

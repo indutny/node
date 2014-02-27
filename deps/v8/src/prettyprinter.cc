@@ -427,6 +427,12 @@ void PrettyPrinter::VisitCallRuntime(CallRuntime* node) {
 }
 
 
+void PrettyPrinter::VisitDTraceProbe(DTraceProbe* node) {
+  Print("%%dtrace");
+  PrintArguments(node->arguments());
+}
+
+
 void PrettyPrinter::VisitUnaryOperation(UnaryOperation* node) {
   Token::Value op = node->op();
   bool needsSpace =
@@ -1125,6 +1131,12 @@ void AstPrinter::VisitCallNew(CallNew* node) {
 void AstPrinter::VisitCallRuntime(CallRuntime* node) {
   IndentedScope indent(this, "CALL RUNTIME");
   PrintLiteralIndented("NAME", node->name(), false);
+  PrintArguments(node->arguments());
+}
+
+
+void AstPrinter::VisitDTraceProbe(DTraceProbe* node) {
+  IndentedScope indent(this, "DTRACE PROBE");
   PrintArguments(node->arguments());
 }
 

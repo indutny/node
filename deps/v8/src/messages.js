@@ -129,6 +129,8 @@ var kMessages = {
   invalid_count_value:           ["Invalid count value"],
   // SyntaxError
   paren_in_arg_string:           ["Function arg string contains parenthesis"],
+  dtrace_arg:                    ["%dtrace: arguments should be literals"],
+  dtrace_oob:                    ["%dtrace: 4 arguments limit exceeded"],
   not_isvar:                     ["builtin %IS_VAR: not a variable"],
   single_function_literal:       ["Single function literal required"],
   invalid_regexp_flags:          ["Invalid flags supplied to RegExp constructor '", "%0", "'"],

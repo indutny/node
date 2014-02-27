@@ -111,6 +111,7 @@ namespace internal {
   V(Call)                                       \
   V(CallNew)                                    \
   V(CallRuntime)                                \
+  V(DTraceProbe)                                \
   V(UnaryOperation)                             \
   V(CountOperation)                             \
   V(BinaryOperation)                            \
@@ -1863,6 +1864,22 @@ class CallRuntime V8_FINAL : public Expression {
 };
 
 
+class DTraceProbe V8_FINAL : public Expression {
+ public:
+  DECLARE_NODE_TYPE(DTraceProbe)
+
+  ZoneList<Expression*>* arguments() const { return arguments_; }
+
+ protected:
+  DTraceProbe(Isolate* isolate, ZoneList<Expression*>* arguments, int pos)
+      : Expression(isolate, pos),
+        arguments_(arguments) { }
+
+ private:
+  ZoneList<Expression*>* arguments_;
+};
+
+
 class UnaryOperation V8_FINAL : public Expression {
  public:
   DECLARE_NODE_TYPE(UnaryOperation)
@@ -3152,6 +3169,11 @@ class AstNodeFactory V8_FINAL BASE_EMBEDDED {
     CallRuntime* call =
         new(zone_) CallRuntime(isolate_, name, function, arguments, pos);
     VISIT_AND_RETURN(CallRuntime, call)
+  }
+
+  DTraceProbe* NewDTraceProbe(ZoneList<Expression*>* arguments, int pos) {
+    DTraceProbe* probe = new(zone_) DTraceProbe(isolate_, arguments, pos);
+    VISIT_AND_RETURN(DTraceProbe, probe)
   }
 
   UnaryOperation* NewUnaryOperation(Token::Value op,

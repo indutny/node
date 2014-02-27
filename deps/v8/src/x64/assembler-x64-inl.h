@@ -32,6 +32,7 @@
 
 #include "cpu.h"
 #include "debug.h"
+#include "dtrace.h"
 #include "v8memory.h"
 
 namespace v8 {
@@ -243,6 +244,8 @@ void RelocInfo::apply(intptr_t delta) {
   } else if (IsCodeTarget(rmode_) || IsRuntimeEntry(rmode_)) {
     Memory::int32_at(pc_) -= static_cast<int32_t>(delta);
     CPU::FlushICache(pc_, sizeof(int32_t));
+  } else if (IsDTrace(rmode_)) {
+    DTrace::Relocate(pc_, delta);
   } else if (rmode_ == CODE_AGE_SEQUENCE) {
     if (*pc_ == kCallOpcode) {
       int32_t* p = reinterpret_cast<int32_t*>(pc_ + 1);

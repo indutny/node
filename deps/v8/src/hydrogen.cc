@@ -7368,6 +7368,12 @@ void HOptimizedGraphBuilder::VisitCallRuntime(CallRuntime* expr) {
 }
 
 
+void HOptimizedGraphBuilder::VisitDTraceProbe(DTraceProbe* expr) {
+  HDTraceProbe* probe = New<HDTraceProbe>(expr);
+  return ast_context()->ReturnInstruction(probe, expr->id());
+}
+
+
 void HOptimizedGraphBuilder::VisitUnaryOperation(UnaryOperation* expr) {
   ASSERT(!HasStackOverflow());
   ASSERT(current_block() != NULL);

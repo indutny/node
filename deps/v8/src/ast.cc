@@ -1147,6 +1147,12 @@ void AstConstructionVisitor::VisitCallRuntime(CallRuntime* node) {
   }
 }
 
+
+void AstConstructionVisitor::VisitDTraceProbe(DTraceProbe* node) {
+  increase_node_count();
+  add_flag(kDontInline);
+}
+
 #undef REGULAR_NODE
 #undef DONT_OPTIMIZE_NODE
 #undef DONT_SELFOPTIMIZE_NODE

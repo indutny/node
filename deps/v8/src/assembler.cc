@@ -783,6 +783,8 @@ const char* RelocInfo::RelocModeName(RelocInfo::Mode rmode) {
       return "js return";
     case RelocInfo::COMMENT:
       return "comment";
+    case RelocInfo::DTRACE:
+      return "dtrace";
     case RelocInfo::POSITION:
       return "position";
     case RelocInfo::STATEMENT_POSITION:
@@ -876,6 +878,7 @@ void RelocInfo::Verify() {
     case RUNTIME_ENTRY:
     case JS_RETURN:
     case COMMENT:
+    case DTRACE:
     case POSITION:
     case STATEMENT_POSITION:
     case EXTERNAL_REFERENCE:
