@@ -760,6 +760,28 @@ size_t SSL_get_peer_finished(const SSL *s, void *buf, size_t count)
 	}
 
 
+int SSL_supply_key_ex_data(SSL* s, unsigned char* data, long len)
+	{
+	if (s->s3 == NULL)
+		return 0;
+
+	switch (s->state) {
+		case SSL3_ST_SR_KEY_EXCH_RSA_DECRYPT_WAIT:
+			s->state=SSL3_ST_SR_KEY_EXCH_RSA_DECRYPT_SUPPLY;
+			break;
+		case SSL3_ST_SW_KEY_EXCH_RSA_SIGN_WAIT:
+			s->state=SSL3_ST_SW_KEY_EXCH_RSA_SIGN_SUPPLY;
+			break;
+		default:
+			return 0;
+	}
+	BIO_set_flags(SSL_get_rbio(s), 0);
+	s->key_ex.data=data;
+	s->key_ex.len=len;
+	return SSL_accept(s);
+	}
+
+
 int SSL_get_verify_mode(const SSL *s)
 	{
 	return(s->verify_mode);
@@ -2538,7 +2560,14 @@ int SSL_get_error(const SSL *s,int i)
 		{
 		return(SSL_ERROR_WANT_X509_LOOKUP);
 		}
-
+	if ((i < 0) && SSL_want_rsa_decrypt(s))
+		{
+		return(SSL_ERROR_WANT_RSA_DECRYPT);
+		}
+	if ((i < 0) && SSL_want_rsa_sign(s))
+		{
+		return(SSL_ERROR_WANT_RSA_SIGN);
+		}
 	if (i == 0)
 		{
 		if (s->version == SSL2_VERSION)

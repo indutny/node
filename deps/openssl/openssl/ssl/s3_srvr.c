@@ -490,13 +490,39 @@ int ssl3_accept(SSL *s)
 			    )
 				{
 				ret=ssl3_send_server_key_exchange(s);
-				if (ret <= 0) goto end;
+				if (ret <= 0)
+					goto end;
+				else if (ret == 2)
+					{
+					s->state=SSL3_ST_SW_KEY_EXCH_RSA_SIGN_SUPPLY;
+					break;
+					}
+				else if (ret == 3)
+					{
+					s->state=SSL3_ST_SW_KEY_EXCH_RSA_SIGN_WAIT;
+					break;
+					}
 				}
 			else
 				skip=1;
+			/* Intentional fall through */
 
+		case SSL3_ST_SW_KEY_EXCH_C:
 			s->state=SSL3_ST_SW_CERT_REQ_A;
 			s->init_num=0;
+			break;
+
+		case SSL3_ST_SW_KEY_EXCH_RSA_SIGN_WAIT:
+			s->rwstate=SSL_RSA_SIGN;
+			ret = -1;
+			goto end;
+
+		case SSL3_ST_SW_KEY_EXCH_RSA_SIGN_SUPPLY:
+			ret=ssl3_cont_server_key_exchange(s);
+			if (ret != 1)
+				goto end;
+			s->rwstate=SSL_NOTHING;
+			s->state=SSL3_ST_SW_KEY_EXCH_C;
 			break;
 
 		case SSL3_ST_SW_CERT_REQ_A:
@@ -599,7 +625,13 @@ int ssl3_accept(SSL *s)
 			ret=ssl3_get_client_key_exchange(s);
 			if (ret <= 0)
 				goto end;
-			if (ret == 2)
+			if (ret == 3)
+				{
+				s->state=(s->mode & SSL_MODE_ASYNC_KEY_EX) ?
+						SSL3_ST_SR_KEY_EXCH_RSA_DECRYPT_WAIT :
+						SSL3_ST_SR_KEY_EXCH_RSA_DECRYPT_SUPPLY;
+				}
+			else if (ret == 2)
 				{
 				/* For the ECDH ciphersuites when
 				 * the client sends its ECDH pub key in
@@ -619,7 +651,14 @@ int ssl3_accept(SSL *s)
 #endif
 				s->init_num = 0;
 				}
-			else if (TLS1_get_version(s) >= TLS1_2_VERSION)
+			else
+				{
+				s->state=SSL3_ST_SR_KEY_EXCH_C;
+				}
+			break;
+
+		case SSL3_ST_SR_KEY_EXCH_C:
+			if (TLS1_get_version(s) >= TLS1_2_VERSION)
 				{
 				s->state=SSL3_ST_SR_CERT_VRFY_A;
 				s->init_num=0;
@@ -668,6 +707,19 @@ int ssl3_accept(SSL *s)
 						offset+=dgst_size;
 						}		
 				}
+			break;
+
+		case SSL3_ST_SR_KEY_EXCH_RSA_DECRYPT_WAIT:
+			s->rwstate=SSL_RSA_DECRYPT;
+			ret = -1;
+			goto end;
+
+		case SSL3_ST_SR_KEY_EXCH_RSA_DECRYPT_SUPPLY:
+			ret=ssl3_cont_client_key_exchange(s);
+			if (ret != 1)
+				goto end;
+			s->rwstate=SSL_NOTHING;
+			s->state=SSL3_ST_SR_KEY_EXCH_C;
 			break;
 
 		case SSL3_ST_SR_CERT_VRFY_A:
@@ -1581,7 +1633,9 @@ int ssl3_send_server_key_exchange(SSL *s)
 	int nr[4],kn;
 	BUF_MEM *buf;
 	EVP_MD_CTX md_ctx;
+	int async;
 
+	async=0;
 	EVP_MD_CTX_init(&md_ctx);
 	if (s->state == SSL3_ST_SW_KEY_EXCH_A)
 		{
@@ -1947,14 +2001,35 @@ int ssl3_send_server_key_exchange(SSL *s)
 					q+=i;
 					j+=i;
 					}
-				if (RSA_sign(NID_md5_sha1, md_buf, j,
-					&(p[2]), &u, pkey->pkey.rsa) <= 0)
+
+				s->key_ex.recoff=p - d;
+				s->key_ex.recsz=n;
+				if ((s->mode & SSL_MODE_ASYNC_KEY_EX) == 0)
 					{
-					SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,ERR_LIB_RSA);
-					goto err;
+					if (RSA_sign(NID_md5_sha1, md_buf, j,
+						&(p[2]), &u, pkey->pkey.rsa) <= 0)
+						{
+						SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,ERR_LIB_RSA);
+						goto err;
+						}
+					s->key_ex.data = &(p[2]);
+					s->key_ex.len = u;
 					}
-				s2n(u,p);
-				n+=u+2;
+				else
+					{
+						/* Copy md_buf contents to init_buf */
+						s->key_ex.data=&p[2];
+						s->key_ex.md=NID_md5_sha1;
+						s->key_ex.len=j;
+						if (!BUF_MEM_grow(s->init_buf,
+															(s->key_ex.data - d) + s->key_ex.len))
+							{
+								SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,ERR_R_BUF_LIB);
+								goto err;
+							}
+						memcpy(s->key_ex.data, md_buf, s->key_ex.len);
+						async=1;
+					}
 				}
 			else
 #endif
@@ -1977,20 +2052,45 @@ int ssl3_send_server_key_exchange(SSL *s)
 				fprintf(stderr, "Using hash %s\n",
 							EVP_MD_name(md));
 #endif
-				EVP_SignInit_ex(&md_ctx, md, NULL);
-				EVP_SignUpdate(&md_ctx,&(s->s3->client_random[0]),SSL3_RANDOM_SIZE);
-				EVP_SignUpdate(&md_ctx,&(s->s3->server_random[0]),SSL3_RANDOM_SIZE);
-				EVP_SignUpdate(&md_ctx,&(d[4]),n);
-				if (!EVP_SignFinal(&md_ctx,&(p[2]),
-					(unsigned int *)&i,pkey))
+				s->key_ex.recoff=p - d;
+				s->key_ex.recsz=n;
+				if ((s->mode & SSL_MODE_ASYNC_KEY_EX) == 0)
 					{
-					SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,ERR_LIB_EVP);
-					goto err;
+					EVP_SignInit_ex(&md_ctx, md, NULL);
+					EVP_SignUpdate(&md_ctx,&(s->s3->client_random[0]),SSL3_RANDOM_SIZE);
+					EVP_SignUpdate(&md_ctx,&(s->s3->server_random[0]),SSL3_RANDOM_SIZE);
+					EVP_SignUpdate(&md_ctx,&(d[4]),n);
+					if (!EVP_SignFinal(&md_ctx,&(p[2]),
+						(unsigned int *)&i,pkey))
+						{
+						SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,ERR_LIB_EVP);
+						goto err;
+						}
+					s->key_ex.data=&(p[2]);
+					s->key_ex.len=i;
 					}
-				s2n(i,p);
-				n+=i+2;
-				if (TLS1_get_version(s) >= TLS1_2_VERSION)
-					n+= 2;
+				else
+					{
+					/* Copy digest inputs to init_buf */
+					s->key_ex.data=&p[2];
+					s->key_ex.len=2 * SSL3_RANDOM_SIZE + n;
+					s->key_ex.md=EVP_MD_nid(md);
+					if (!BUF_MEM_grow(s->init_buf,
+														(s->key_ex.data - d) + s->key_ex.len))
+						{
+							SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,ERR_R_BUF_LIB);
+							goto err;
+						}
+					q=s->key_ex.data;
+					memcpy(q, &(s->s3->client_random[0]), SSL3_RANDOM_SIZE);
+					memcpy(q + SSL3_RANDOM_SIZE,
+								 &(s->s3->server_random[0]),
+								 SSL3_RANDOM_SIZE);
+					memcpy(q + 2 * SSL3_RANDOM_SIZE,
+								 &(d[4]),
+								 n);
+					async=1;
+					}
 				}
 			else
 				{
@@ -1999,8 +2099,9 @@ int ssl3_send_server_key_exchange(SSL *s)
 				SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,SSL_R_UNKNOWN_PKEY_TYPE);
 				goto f_err;
 				}
+				EVP_MD_CTX_cleanup(&md_ctx);
+				return async ? 3 : 2;
 			}
-
 		*(d++)=SSL3_MT_SERVER_KEY_EXCHANGE;
 		l2n3(n,d);
 
@@ -2022,6 +2123,36 @@ err:
 #endif
 	EVP_MD_CTX_cleanup(&md_ctx);
 	return(-1);
+	}
+
+int ssl3_cont_server_key_exchange(SSL *s)
+	{
+	unsigned char *p,*d;
+	int n;
+
+	d=(unsigned char*) s->init_buf->data;
+	p=d + s->key_ex.recoff;
+	n=s->key_ex.recsz;
+
+	/* Copy key exchange data */
+	if (&p[2] != s->key_ex.data)
+		memcpy(&p[2], s->key_ex.data, s->key_ex.len);
+	s2n(s->key_ex.len,p);
+	n+=s->key_ex.len+2;
+
+	/* Signature/Hash algorithms */
+	if (TLS1_get_version(s) >= TLS1_2_VERSION)
+		n+= 2;
+	*(d++)=SSL3_MT_SERVER_KEY_EXCHANGE;
+	l2n3(n,d);
+
+	/* we should now have things packed up, so lets send
+	 * it off */
+	s->init_num=n+4;
+	s->init_off=0;
+
+	s->state = SSL3_ST_SW_KEY_EXCH_B;
+	return(ssl3_do_write(s,SSL3_RT_HANDSHAKE));
 	}
 
 int ssl3_send_certificate_request(SSL *s)
@@ -2213,59 +2344,19 @@ int ssl3_get_client_key_exchange(SSL *s)
 				n=i;
 			}
 
-		i=RSA_private_decrypt((int)n,p,p,rsa,RSA_PKCS1_PADDING);
-
-		al = -1;
-		
-		if (i != SSL_MAX_MASTER_KEY_LENGTH)
+		if ((s->mode & SSL_MODE_ASYNC_KEY_EX) == 0)
 			{
-			al=SSL_AD_DECODE_ERROR;
-			/* SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,SSL_R_BAD_RSA_DECRYPT); */
+			i=RSA_private_decrypt((int)n,p,p,rsa,RSA_PKCS1_PADDING);
+			s->key_ex.data=p;
+			s->key_ex.len=i;
+			return 3;
 			}
-
-		if ((al == -1) && !((p[0] == (s->client_version>>8)) && (p[1] == (s->client_version & 0xff))))
+		else
 			{
-			/* The premaster secret must contain the same version number as the
-			 * ClientHello to detect version rollback attacks (strangely, the
-			 * protocol does not offer such protection for DH ciphersuites).
-			 * However, buggy clients exist that send the negotiated protocol
-			 * version instead if the server does not support the requested
-			 * protocol version.
-			 * If SSL_OP_TLS_ROLLBACK_BUG is set, tolerate such clients. */
-			if (!((s->options & SSL_OP_TLS_ROLLBACK_BUG) &&
-				(p[0] == (s->version>>8)) && (p[1] == (s->version & 0xff))))
-				{
-				al=SSL_AD_DECODE_ERROR;
-				/* SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,SSL_R_BAD_PROTOCOL_VERSION_NUMBER); */
-
-				/* The Klima-Pokorny-Rosa extension of Bleichenbacher's attack
-				 * (http://eprint.iacr.org/2003/052/) exploits the version
-				 * number check as a "bad version oracle" -- an alert would
-				 * reveal that the plaintext corresponding to some ciphertext
-				 * made up by the adversary is properly formatted except
-				 * that the version number is wrong.  To avoid such attacks,
-				 * we should treat this just like any other decryption error. */
-				}
+			s->key_ex.data=p;
+			s->key_ex.len=n;
+			return 3;
 			}
-
-		if (al != -1)
-			{
-			/* Some decryption failure -- use random value instead as countermeasure
-			 * against Bleichenbacher's attack on PKCS #1 v1.5 RSA padding
-			 * (see RFC 2246, section 7.4.7.1). */
-			ERR_clear_error();
-			i = SSL_MAX_MASTER_KEY_LENGTH;
-			p[0] = s->client_version >> 8;
-			p[1] = s->client_version & 0xff;
-			if (RAND_pseudo_bytes(p+2, i-2) <= 0) /* should be RAND_bytes, but we cannot work around a failure */
-				goto err;
-			}
-	
-		s->session->master_key_length=
-			s->method->ssl3_enc->generate_master_secret(s,
-				s->session->master_key,
-				p,i);
-		OPENSSL_cleanse(p,i);
 		}
 	else
 #endif
@@ -2907,6 +2998,70 @@ err:
 	BN_CTX_free(bn_ctx);
 #endif
 	return(-1);
+	}
+
+int ssl3_cont_client_key_exchange(SSL *s)
+	{
+	int i,al;
+	unsigned char *p;
+
+	p=(unsigned char *)s->init_msg;
+	al = -1;
+	i = s->key_ex.len;
+
+	if (i != SSL_MAX_MASTER_KEY_LENGTH)
+		{
+		al=SSL_AD_DECODE_ERROR;
+		/* SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,SSL_R_BAD_RSA_DECRYPT); */
+		}
+
+	if (p != s->key_ex.data)
+		memcpy(p, s->key_ex.data, i);
+
+	if ((al == -1) && !((p[0] == (s->client_version>>8)) && (p[1] == (s->client_version & 0xff))))
+		{
+		/* The premaster secret must contain the same version number as the
+		 * ClientHello to detect version rollback attacks (strangely, the
+		 * protocol does not offer such protection for DH ciphersuites).
+		 * However, buggy clients exist that send the negotiated protocol
+		 * version instead if the server does not support the requested
+		 * protocol version.
+		 * If SSL_OP_TLS_ROLLBACK_BUG is set, tolerate such clients. */
+		if (!((s->options & SSL_OP_TLS_ROLLBACK_BUG) &&
+			(p[0] == (s->version>>8)) && (p[1] == (s->version & 0xff))))
+			{
+			al=SSL_AD_DECODE_ERROR;
+			/* SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,SSL_R_BAD_PROTOCOL_VERSION_NUMBER); */
+
+			/* The Klima-Pokorny-Rosa extension of Bleichenbacher's attack
+			 * (http://eprint.iacr.org/2003/052/) exploits the version
+			 * number check as a "bad version oracle" -- an alert would
+			 * reveal that the plaintext corresponding to some ciphertext
+			 * made up by the adversary is properly formatted except
+			 * that the version number is wrong.	To avoid such attacks,
+			 * we should treat this just like any other decryption error. */
+			}
+		}
+
+	if (al != -1)
+		{
+		/* Some decryption failure -- use random value instead as countermeasure
+		 * against Bleichenbacher's attack on PKCS #1 v1.5 RSA padding
+		 * (see RFC 2246, section 7.4.7.1). */
+		ERR_clear_error();
+		i = SSL_MAX_MASTER_KEY_LENGTH;
+		p[0] = s->client_version >> 8;
+		p[1] = s->client_version & 0xff;
+		if (RAND_pseudo_bytes(p+2, i-2) <= 0) /* should be RAND_bytes, but we cannot work around a failure */
+			return -1;
+		}
+
+	s->session->master_key_length=
+		s->method->ssl3_enc->generate_master_secret(s,
+			s->session->master_key,
+			p,i);
+	OPENSSL_cleanse(p,i);
+	return 1;
 	}
 
 int ssl3_get_cert_verify(SSL *s)

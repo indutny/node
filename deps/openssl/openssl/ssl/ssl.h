@@ -653,6 +653,11 @@ struct ssl_session_st
  */
 #define SSL_MODE_SEND_CLIENTHELLO_TIME 0x00000020L
 #define SSL_MODE_SEND_SERVERHELLO_TIME 0x00000040L
+/* If set - SSL_ERROR_WANT_RSA_DECRYPT/SSL_ERROR_WANT_RSA_SIGN may be returned
+ * by SSL_read()/SSL_write(), when the key exchange requires the use of the
+ * RSA private key.
+ */
+#define SSL_MODE_ASYNC_KEY_EX          0x00000080L
 
 /* Note: SSL[_CTX]_set_{options,mode} use |= op on the previous value,
  * they cannot be used to clear bits. */
@@ -1102,12 +1107,16 @@ const char *SSL_get_psk_identity(const SSL *s);
 #define SSL_WRITING	2
 #define SSL_READING	3
 #define SSL_X509_LOOKUP	4
+#define SSL_RSA_DECRYPT	5
+#define SSL_RSA_SIGN	6
 
 /* These will only be used when doing non-blocking IO */
 #define SSL_want_nothing(s)	(SSL_want(s) == SSL_NOTHING)
 #define SSL_want_read(s)	(SSL_want(s) == SSL_READING)
 #define SSL_want_write(s)	(SSL_want(s) == SSL_WRITING)
 #define SSL_want_x509_lookup(s)	(SSL_want(s) == SSL_X509_LOOKUP)
+#define SSL_want_rsa_decrypt(s)	(SSL_want(s) == SSL_RSA_DECRYPT)
+#define SSL_want_rsa_sign(s)	(SSL_want(s) == SSL_RSA_SIGN)
 
 #define SSL_MAC_FLAG_READ_MAC_STREAM 1
 #define SSL_MAC_FLAG_WRITE_MAC_STREAM 2
@@ -1364,6 +1373,15 @@ struct ssl_st
 #ifndef OPENSSL_NO_SRP
 	SRP_CTX srp_ctx; /* ctx for SRP authentication */
 #endif
+	struct {
+		unsigned char* data;
+		long len;
+		int md;
+
+		/* Internal */
+		long recoff;
+		long recsz;
+	} key_ex;
 	};
 
 #endif
@@ -1451,6 +1469,13 @@ size_t SSL_get_peer_finished(const SSL *s, void *buf, size_t count);
 #define OpenSSL_add_ssl_algorithms()	SSL_library_init()
 #define SSLeay_add_ssl_algorithms()	SSL_library_init()
 
+/* Async key exchange params */
+#define SSL_get_key_ex_data(s) ((s)->key_ex.data)
+#define SSL_get_key_ex_len(s) ((s)->key_ex.len)
+#define SSL_get_key_ex_md(s) ((s)->key_ex.md)
+
+int SSL_supply_key_ex_data(SSL* s, unsigned char* data, long len);
+
 /* this is for backward compatibility */
 #if 0 /* NEW_SSLEAY */
 #define SSL_CTX_set_default_verify(a,b,c) SSL_CTX_set_verify(a,b,c)
@@ -1521,6 +1546,8 @@ DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
 #define SSL_ERROR_ZERO_RETURN		6
 #define SSL_ERROR_WANT_CONNECT		7
 #define SSL_ERROR_WANT_ACCEPT		8
+#define SSL_ERROR_WANT_RSA_DECRYPT		9
+#define SSL_ERROR_WANT_RSA_SIGN		10
 
 #define SSL_CTRL_NEED_TMP_RSA			1
 #define SSL_CTRL_SET_TMP_RSA			2
