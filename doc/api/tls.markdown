@@ -229,6 +229,14 @@ automatically set as a listener for the [secureConnection][] event.  The
     SSL version 3. The possible values depend on your installation of
     OpenSSL and are defined in the constant [SSL_METHODS][].
 
+  - `asyncKeyExCb`: If supplied - puts TLS server into the async RSA
+    sign/decrypt mode. This means that the a dummy RSA key could be supplied
+    instead of a real one, and for every RSA key usage -
+    `asyncKeyExCb(type, md, input, cb)` will be called. Where `type` could
+    be either: `sign` or `decrypt`, and `md` is a signature+hash algorithm that
+    should be used for `sign` operation. Once done - `cb(null, out)` should be
+    called, with a results of a key operation.
+
 Here is a simple example echo server:
 
     var tls = require('tls');

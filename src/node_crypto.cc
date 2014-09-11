@@ -286,6 +286,8 @@ void SecureContext::Initialize(Environment* env, Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(t,
                             "getIssuer",
                             SecureContext::GetCertificate<false>);
+  NODE_SET_PROTOTYPE_METHOD(t, "getMode", SecureContext::GetMode);
+  NODE_SET_PROTOTYPE_METHOD(t, "setMode", SecureContext::SetMode);
 
   target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "SecureContext"),
               t->GetFunction());
@@ -957,6 +959,22 @@ void SecureContext::SetTicketKeys(const FunctionCallbackInfo<Value>& args) {
 }
 
 
+void SecureContext::GetMode(const FunctionCallbackInfo<Value>& args) {
+  HandleScope scope(args.GetIsolate());
+  SecureContext* wrap = Unwrap<SecureContext>(args.Holder());
+  args.GetReturnValue().Set(
+      static_cast<uint32_t>(SSL_CTX_get_mode(wrap->ctx_)));
+}
+
+
+void SecureContext::SetMode(const FunctionCallbackInfo<Value>& args) {
+  HandleScope scope(args.GetIsolate());
+  SecureContext* wrap = Unwrap<SecureContext>(args.Holder());
+
+  SSL_CTX_set_mode(wrap->ctx_, args[0]->Uint32Value());
+}
+
+
 template <bool primary>
 void SecureContext::GetCertificate(const FunctionCallbackInfo<Value>& args) {
   HandleScope scope(args.GetIsolate());
@@ -1009,6 +1027,8 @@ void SSLWrap<Base>::AddMethods(Environment* env, Handle<FunctionTemplate> t) {
   NODE_SET_PROTOTYPE_METHOD(t, "getNegotiatedProtocol", GetNegotiatedProto);
   NODE_SET_PROTOTYPE_METHOD(t, "setNPNProtocols", SetNPNProtocols);
 #endif  // OPENSSL_NPN_NEGOTIATED
+
+  NODE_SET_PROTOTYPE_METHOD(t, "supplyKeyEx", SupplyKeyEx);
 }
 
 
@@ -1794,6 +1814,23 @@ void SSLWrap<Base>::SetNPNProtocols(const FunctionCallbackInfo<Value>& args) {
   w->npn_protos_.Reset(args.GetIsolate(), args[0].As<Object>());
 }
 #endif  // OPENSSL_NPN_NEGOTIATED
+
+
+template <class Base>
+void SSLWrap<Base>::SupplyKeyEx(const FunctionCallbackInfo<Value>& args) {
+  HandleScope scope(args.GetIsolate());
+
+  Base* w = Unwrap<Base>(args.Holder());
+
+  if (args.Length() < 1 || !Buffer::HasInstance(args[0]))
+    return w->env()->ThrowTypeError("Must give a Buffer as first argument");
+
+  unsigned char* out = reinterpret_cast<unsigned char*>(Buffer::Data(args[0]));
+  size_t len = Buffer::Length(args[0]);
+  int r = SSL_supply_key_ex_data(w->ssl_, out, len);
+  if (!r)
+    return w->env()->ThrowTypeError("SSL_supply_kex_ex() failure");
+}
 
 
 #ifdef NODE__HAVE_TLSEXT_STATUS_CB

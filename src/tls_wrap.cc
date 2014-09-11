@@ -267,12 +267,9 @@ void TLSCallbacks::Start(const FunctionCallbackInfo<Value>& args) {
 
   TLSCallbacks* wrap = Unwrap<TLSCallbacks>(args.Holder());
 
-  if (wrap->started_)
-    return env->ThrowError("Already started.");
   wrap->started_ = true;
 
   // Send ClientHello handshake
-  assert(wrap->is_client());
   wrap->ClearOut();
   wrap->EncOut();
 }
@@ -404,6 +401,35 @@ const char* TLSCallbacks::PrintErrors() {
 }
 
 
+bool TLSCallbacks::HandleAsyncKeyEx() {
+  if (!SSL_want_rsa_decrypt(ssl_) && !SSL_want_rsa_sign(ssl_))
+    return false;
+
+  HandleScope scope(env()->isolate());
+
+  int md_nid = SSL_get_key_ex_md(ssl_);
+  const char* md;
+  if (SSL_want_rsa_sign(ssl_))
+    md = OBJ_nid2sn(md_nid);
+  else
+    md = NULL;
+
+  Local<Value> argv[] = {
+    String::NewFromUtf8(env()->isolate(),
+                        SSL_want_rsa_decrypt(ssl_) ? "decrypt" : "sign"),
+    md == NULL ?
+      Null(env()->isolate()).As<Value>():
+      String::NewFromUtf8(env()->isolate(), md).As<Value>(),
+    Buffer::New(env(),
+                reinterpret_cast<char*>(SSL_get_key_ex_data(ssl_)),
+                SSL_get_key_ex_len(ssl_))
+  };
+  MakeCallback(env()->onasynckeyex_string(), ARRAY_SIZE(argv), argv);
+
+  return true;
+}
+
+
 Local<Value> TLSCallbacks::GetSSLError(int status, int* err, const char** msg) {
   EscapableHandleScope scope(env()->isolate());
 
@@ -469,6 +495,9 @@ void TLSCallbacks::ClearOut() {
   }
 
   if (read == -1) {
+    if (HandleAsyncKeyEx())
+      return;
+
     int err;
     Local<Value> arg = GetSSLError(read, &err, NULL);
 
@@ -508,6 +537,9 @@ bool TLSCallbacks::ClearIn() {
 
   HandleScope handle_scope(env()->isolate());
   Context::Scope context_scope(env()->context());
+
+  if (HandleAsyncKeyEx())
+    return true;
 
   // Error or partial write
   int err;
@@ -587,6 +619,9 @@ int TLSCallbacks::DoWrite(WriteWrap* w,
   }
 
   if (i != count) {
+    if (HandleAsyncKeyEx())
+      return 0;
+
     int err;
     HandleScope handle_scope(env()->isolate());
     Context::Scope context_scope(env()->context());

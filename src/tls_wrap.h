@@ -117,6 +117,7 @@ class TLSCallbacks : public crypto::SSLWrap<TLSCallbacks>,
     }
   }
 
+  bool HandleAsyncKeyEx();
   v8::Local<v8::Value> GetSSLError(int status, int* err, const char** msg);
   const char* PrintErrors();
 

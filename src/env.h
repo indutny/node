@@ -149,6 +149,7 @@ namespace node {
   V(nsname_string, "nsname")                                                  \
   V(ocsp_request_string, "OCSPRequest")                                       \
   V(offset_string, "offset")                                                  \
+  V(onasynckeyex_string, "onasynckeyex")                                      \
   V(onchange_string, "onchange")                                              \
   V(onclienthello_string, "onclienthello")                                    \
   V(oncomplete_string, "oncomplete")                                          \

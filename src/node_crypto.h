@@ -105,6 +105,8 @@ class SecureContext : public BaseObject {
   static void LoadPKCS12(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void GetTicketKeys(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetTicketKeys(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetMode(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SetMode(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   template <bool primary>
   static void GetCertificate(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -225,6 +227,7 @@ class SSLWrap {
   static void GetNegotiatedProto(
       const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetNPNProtocols(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SupplyKeyEx(const v8::FunctionCallbackInfo<v8::Value>& args);
   static int AdvertiseNextProtoCallback(SSL* s,
                                         const unsigned char** data,
                                         unsigned int* len,
