@@ -21,6 +21,7 @@
 
 #include "node_v8_platform.h"
 
+#include "node.h"
 #include "util.h"
 #include "util-inl.h"
 #include "uv.h"
@@ -100,7 +101,8 @@ void Platform::WorkerBody(void* arg) {
 TaskQueue::TaskQueue() {
   int err;
 
-  // TODO(indutny): ensure power-of-two size
+  STATIC_ASSERT(kRingSize == (kRingSize & (~(kRingSize - 1))));
+
   size_ = kRingSize;
   ring_ = new Task*[size_];
   mask_ = size_ - 1;
@@ -108,6 +110,9 @@ TaskQueue::TaskQueue() {
   write_off_ = 0;
 
   err = uv_sem_init(&sem_, 0);
+  CHECK_EQ(err, 0);
+
+  err = uv_cond_init(&cond_);
   CHECK_EQ(err, 0);
 
   err = uv_mutex_init(&mutex_);
@@ -121,17 +126,17 @@ TaskQueue::~TaskQueue() {
   delete[] ring_;
   ring_ = NULL;
   uv_sem_destroy(&sem_);
+  uv_cond_destroy(&cond_);
   uv_mutex_destroy(&mutex_);
 }
 
 
 void TaskQueue::Push(Task* task) {
   uv_mutex_lock(&mutex_);
-  while (ring_[write_off_] != NULL) {
-    uv_mutex_unlock(&mutex_);
-    // Spin while there is no space left in buffer
-    uv_mutex_lock(&mutex_);
-  }
+
+  // Wait for empty cell
+  while (ring_[write_off_] != NULL)
+    uv_cond_wait(&cond_, &mutex_);
 
   ring_[write_off_] = task;
   write_off_++;
@@ -148,6 +153,7 @@ Task* TaskQueue::Shift() {
   uv_mutex_lock(&mutex_);
   Task* task = ring_[read_off_];
   ring_[read_off_] = NULL;
+  uv_cond_signal(&cond_);
 
   read_off_++;
   read_off_ &= mask_;

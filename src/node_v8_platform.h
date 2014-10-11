@@ -39,6 +39,7 @@ class TaskQueue {
   static const unsigned int kRingSize = 1024;
 
   uv_sem_t sem_;
+  uv_cond_t cond_;
   uv_mutex_t mutex_;
   v8::Task** ring_;
   unsigned int size_;
