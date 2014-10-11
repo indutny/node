@@ -84,7 +84,7 @@ void Platform::CallOnForegroundThread(Isolate* isolate, Task* task) {
 
 
 void Platform::WorkerBody(void* arg) {
-  Platform* p = reinterpret_cast<Platform*>(arg);
+  Platform* p = static_cast<Platform*>(arg);
 
   for (;;) {
     Task* task = p->global_queue()->Shift();
@@ -102,12 +102,15 @@ TaskQueue::TaskQueue() {
 
   // TODO(indutny): ensure power-of-two size
   size_ = kRingSize;
-  ring_ = const_cast<volatile Task**>(new Task*[size_]);
+  ring_ = new Task*[size_];
   mask_ = size_ - 1;
   read_off_ = 0;
   write_off_ = 0;
 
   err = uv_sem_init(&sem_, 0);
+  CHECK_EQ(err, 0);
+
+  err = uv_mutex_init(&mutex_);
   CHECK_EQ(err, 0);
 }
 
@@ -118,26 +121,22 @@ TaskQueue::~TaskQueue() {
   delete[] ring_;
   ring_ = NULL;
   uv_sem_destroy(&sem_);
+  uv_mutex_destroy(&mutex_);
 }
 
 
-#ifdef _WIN32
-# define ATOMIC_INC(ptr) InterlockedIncrement((ptr))
-#else  // !_WIN32
-# define ATOMIC_INC(ptr) __sync_fetch_and_add((ptr), 1)
-#endif
-
-
 void TaskQueue::Push(Task* task) {
-  while (((write_off_ + 1) & mask_) == read_off_) {
+  uv_mutex_lock(&mutex_);
+  while (ring_[write_off_] != NULL) {
+    uv_mutex_unlock(&mutex_);
     // Spin while there is no space left in buffer
+    uv_mutex_lock(&mutex_);
   }
 
-  volatile Task** cell = &ring_[ATOMIC_INC(&write_off_) & mask_];
-  while (*cell != NULL) {
-    // Spin, while the reader is at the same cell
-  }
-  *cell = task;
+  ring_[write_off_] = task;
+  write_off_++;
+  write_off_ &= mask_;
+  uv_mutex_unlock(&mutex_);
 
   uv_sem_post(&sem_);
 }
@@ -146,20 +145,16 @@ void TaskQueue::Push(Task* task) {
 Task* TaskQueue::Shift() {
   uv_sem_wait(&sem_);
 
-  volatile Task** cell = &ring_[ATOMIC_INC(&read_off_) & mask_];
-  Task* task;
+  uv_mutex_lock(&mutex_);
+  Task* task = ring_[read_off_];
+  ring_[read_off_] = NULL;
 
-  // Spin, while the writer is at the same cell
-  do {
-    task = const_cast<Task*>(*cell);
-  } while (task == NULL);
-  *cell = NULL;
+  read_off_++;
+  read_off_ &= mask_;
+  uv_mutex_unlock(&mutex_);
 
   return task;
 }
-
-
-#undef ATOMIC_INC
 
 
 }  // namespace node

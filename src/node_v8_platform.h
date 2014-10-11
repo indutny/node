@@ -39,11 +39,12 @@ class TaskQueue {
   static const unsigned int kRingSize = 1024;
 
   uv_sem_t sem_;
-  volatile v8::Task** ring_;
+  uv_mutex_t mutex_;
+  v8::Task** ring_;
   unsigned int size_;
   unsigned int mask_;
-  volatile unsigned int read_off_;
-  volatile unsigned int write_off_;
+  unsigned int read_off_;
+  unsigned int write_off_;
 };
 
 class Platform : public v8::Platform {
